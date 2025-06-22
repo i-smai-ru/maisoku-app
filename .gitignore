@@ -52,6 +52,15 @@ frontend/ios/Pods/
 frontend/ios/.symlinks/
 frontend/ios/Flutter/.last_build_id
 
+# Xcode ユーザー固有ファイル
+frontend/ios/Runner.xcworkspace/xcuserdata/
+frontend/ios/Runner.xcodeproj/xcuserdata/
+frontend/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+frontend/ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+frontend/ios/*.xcworkspace/xcuserdata/
+frontend/ios/*.xcodeproj/xcuserdata/
+frontend/ios/*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
 # Flutter Android
 frontend/android/app/debug/
 frontend/android/app/profile/
