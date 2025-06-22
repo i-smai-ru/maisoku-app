@@ -1,0 +1,291 @@
+# =====================================
+# プロジェクト固有の除外ファイル
+# =====================================
+
+# 設定ファイル（APIキーなど）
+frontend/lib/config/api_config.dart
+backend/.env
+backend/.env.local
+backend/.env.production
+
+# Firebase設定ファイル（セキュリティ上）
+# frontend/ios/Runner/GoogleService-Info.plist
+# frontend/android/app/google-services.json
+
+# Cloud Run / GCP 認証ファイル
+service-account-key.json
+gcp-key.json
+*.json
+
+# 一時ファイル・ログ
+*.log
+*.tmp
+.DS_Store
+
+# =====================================
+# Flutter Frontend 関連
+# =====================================
+
+# Dart/Flutter
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+frontend/build/
+frontend/.gradle/
+
+# Flutter Web
+frontend/web/firebase-config.js
+
+# Flutter iOS
+frontend/ios/Flutter/Flutter.framework/
+frontend/ios/Flutter/Flutter.podspec
+frontend/ios/Flutter/Generated.xcconfig
+frontend/ios/Flutter/app.flx
+frontend/ios/Flutter/app.zip
+frontend/ios/Flutter/flutter_assets/
+frontend/ios/ServiceDefinitions.json
+frontend/ios/Runner/GeneratedPluginRegistrant.*
+frontend/ios/Pods/
+frontend/ios/.symlinks/
+frontend/ios/Flutter/.last_build_id
+
+# Flutter Android
+frontend/android/app/debug/
+frontend/android/app/profile/
+frontend/android/app/release/
+frontend/android/.gradle/
+frontend/android/captures/
+frontend/android/gradlew
+frontend/android/gradlew.bat
+frontend/android/local.properties
+frontend/android/**/GeneratedPluginRegistrant.java
+frontend/android/key.properties
+
+# VS Code
+frontend/.vscode/
+.vscode/
+
+# IntelliJ/Android Studio
+frontend/.idea/
+frontend/*.iml
+frontend/*.ipr
+frontend/*.iws
+.idea/
+
+# macOS
+.DS_Store
+
+# =====================================
+# Python Backend 関連
+# =====================================
+
+# Python
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/*.so
+backend/.Python
+backend/env/
+backend/venv/
+backend/ENV/
+backend/env.bak/
+backend/venv.bak/
+
+# Python 分布 / パッケージング
+backend/.Python
+backend/build/
+backend/develop-eggs/
+backend/dist/
+backend/downloads/
+backend/eggs/
+backend/.eggs/
+backend/lib/
+backend/lib64/
+backend/parts/
+backend/sdist/
+backend/var/
+backend/wheels/
+backend/*.egg-info/
+backend/.installed.cfg
+backend/*.egg
+backend/MANIFEST
+
+# Python ユニットテスト / カバレッジ
+backend/htmlcov/
+backend/.tox/
+backend/.coverage
+backend/.coverage.*
+backend/.cache
+backend/nosetests.xml
+backend/coverage.xml
+backend/*.cover
+backend/.hypothesis/
+backend/.pytest_cache/
+
+# Python 環境
+backend/.env
+backend/.venv
+backend/env/
+backend/venv/
+backend/ENV/
+backend/env.bak/
+backend/venv.bak/
+
+# FastAPI 固有
+backend/app.log
+backend/access.log
+
+# Jupyter Notebook
+backend/.ipynb_checkpoints
+
+# pyenv
+backend/.python-version
+
+# Celery
+backend/celerybeat-schedule
+backend/celerybeat.pid
+
+# SageMath parsed files
+backend/*.sage.py
+
+# Rope project settings
+backend/.ropeproject
+
+# mkdocs documentation
+backend/site/
+
+# mypy
+backend/.mypy_cache/
+
+# =====================================
+# Google Cloud / Docker 関連
+# =====================================
+
+# Google Cloud
+deployment/.gcloudignore
+deployment/service-account-key.json
+
+# Docker
+Dockerfile.dev
+docker-compose.override.yml
+.dockerignore
+
+# Cloud Run
+deployment/cloudbuild.yaml.backup
+
+# =====================================
+# データベース
+# =====================================
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# =====================================
+# ログ・一時ファイル
+# =====================================
+
+# ログファイル
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 一時ディレクトリ
+tmp/
+temp/
+
+# OS 固有
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# =====================================
+# エディタ・IDE 設定
+# =====================================
+
+# VS Code
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# JetBrains IDEs
+.idea/
+*.swp
+*.swo
+*~
+
+# Vim
+*.swp
+*.swo
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =====================================
+# パッケージマネージャー
+# =====================================
+
+# Node.js (Web用ツールがある場合)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =====================================
+# セキュリティ関連
+# =====================================
+
+# 秘密鍵
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# APIキー・認証情報
+.env.production
+.env.staging
+secrets.yaml
+config/secrets.yaml
+
+# =====================================
+# プロジェクト固有の追加除外
+# =====================================
+
+# maisoku-app 固有
+# 開発中の一時ファイル
+scratch/
+notes/
+TODO.md
+
+# テスト用データ
+test_images/
+sample_data/
+
+# バックアップファイル
+*.backup
+*.bak
+
+# Firebase Emulator
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
