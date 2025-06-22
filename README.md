@@ -156,6 +156,80 @@ flutter run -d chrome                   # Web
 flutter run -d [DEVICE_ID]              # iPhone/Android実機
 ```
 
+#### 3. ホットリロード開発
+```bash
+# VS Code で開発する場合
+code frontend/
+
+# VS Code 内で:
+# 1. lib/main.dart を開く
+# 2. F5 または Debug > Start Debugging
+# 3. コード変更で自動リロード
+```
+
+#### 4. トラブルシューティング
+```bash
+# Flutter 環境リセット
+flutter clean
+flutter pub get
+
+# iOS 証明書問題の場合
+open ios/Runner.xcworkspace
+# Xcode で Signing & Capabilities → Team 設定
+
+# Android エミュレータ起動
+flutter emulators --launch <emulator_name>
+```
+
+### 🔧 VS Code 開発環境設定
+
+#### 1. 必須拡張機能
+```bash
+# VS Code 拡張機能をインストール
+# 1. Flutter (Dart-Code.flutter)
+# 2. Dart (Dart-Code.dart-code)  
+# 3. Docker (ms-azuretools.vscode-docker)
+# 4. Python (ms-python.python)
+```
+
+#### 2. 推奨 VS Code 設定
+```json
+// .vscode/settings.json
+{
+  "dart.flutterHotReloadOnSave": "allIfDirty",
+  "dart.hotReloadOnSave": "allIfDirty",
+  "editor.formatOnSave": true,
+  "dart.previewFlutterUiGuides": true,
+  "files.associations": {
+    "*.yaml": "yaml",
+    "Dockerfile*": "dockerfile"
+  }
+}
+```
+
+#### 3. デバッグ設定
+```json
+// .vscode/launch.json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter (frontend)",
+      "cwd": "frontend",
+      "request": "launch",
+      "type": "dart"
+    },
+    {
+      "name": "FastAPI (backend)",
+      "type": "python",
+      "request": "launch",
+      "program": "backend/main.py",
+      "console": "integratedTerminal"
+    }
+  ]
+}
+```
+
 ## 🧪 開発ワークフロー
 
 ### 日常開発手順
@@ -202,6 +276,17 @@ gcloud run deploy maisoku-api \
   --allow-unauthenticated
 ```
 
+### Flutter Web デプロイ
+```bash
+cd frontend
+
+# Web 向けビルド
+flutter build web
+
+# Firebase Hosting にデプロイ (optional)
+firebase deploy --only hosting
+```
+
 ## 🔍 トラブルシューティング
 
 ### よくある問題と解決法
@@ -217,3 +302,48 @@ docker-compose down
 docker system prune -f
 docker-compose up --build
 ```
+
+#### Flutter 関連
+```bash
+# iOS 証明書エラー
+open ios/Runner.xcworkspace
+# Xcode で Team 設定を確認
+
+# Android エミュレータ起動しない
+flutter emulators
+flutter emulators --launch android
+
+# 依存関係エラー
+flutter clean
+flutter pub get
+```
+
+#### VS Code 関連
+```bash
+# Flutter 拡張機能が認識しない
+# Command Palette (Cmd+Shift+P)
+# "Flutter: Reload"
+
+# Dart LSP エラー
+# Command Palette → "Dart: Restart Analysis Server"
+```
+
+## 📞 サポート
+
+### 開発環境構築でお困りの場合
+
+1. **Flutter Doctor 実行**: `flutter doctor -v` の結果を確認
+2. **Docker 状態確認**: `docker-compose logs maisoku-api`
+3. **VS Code 拡張機能**: Flutter/Dart 拡張が有効か確認
+4. **ネットワーク**: ファイアウォール・プロキシ設定を確認
+
+### 参考リンク
+
+- [Flutter インストールガイド](https://docs.flutter.dev/get-started/install)
+- [Docker インストール](https://docs.docker.com/get-docker/)
+- [VS Code Flutter 拡張](https://marketplace.visualstudio.com/items?itemName=Dart-Code.flutter)
+- [Google Cloud Run ドキュメント](https://cloud.google.com/run/docs)
+
+---
+
+**Maisoku** - AI で理想の住まいを見つけよう 🏠✨
