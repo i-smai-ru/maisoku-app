@@ -297,4 +297,7 @@ sample_data/
 .firebase/
 firebase-debug.log
 firestore-debug.log
-ui-debug.log
+frontend/lib/firebase_options.dart
+frontend/ios/Podfile.lock
+frontend/macos/Runner/  
+frontend/macos/Flutter/GeneratedPluginRegistrant.swift
