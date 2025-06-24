@@ -1,4 +1,28 @@
+# requirements.txt - MaisokuAI v1.0 Backend Dependencies
+
+# FastAPI Core
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
+
+# Google Cloud & AI
+google-cloud-aiplatform>=1.40.0
+google-generativeai
+
+# Google Maps API
+googlemaps==4.10.0
+
+# Firebase
 firebase-admin==6.2.0
+
+# Data & Utilities
+pydantic==2.5.0
+python-jose[cryptography]==3.3.0
+python-dotenv==1.0.0
+
+# HTTP & Async
+httpx==0.25.2
+aiofiles==23.2.1
+
+# Logging & Monitoring
+structlog==23.2.0
