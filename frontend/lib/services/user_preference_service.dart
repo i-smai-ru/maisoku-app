@@ -1,5 +1,6 @@
 // lib/services/user_preference_service.dart
 
+import 'package:flutter/material.dart';
 import '../models/user_preference_model.dart';
 import '../services/firestore_service.dart';
 
@@ -29,7 +30,6 @@ class UserPreferenceService {
 
       if (preferences != null) {
         print('✅ ユーザー好み設定取得完了: $userId');
-        print('📊 設定内容: ${preferences.debugSummary}');
         return preferences;
       } else {
         print('📝 好み設定が未設定: $userId');
@@ -39,6 +39,13 @@ class UserPreferenceService {
       print('❌ ユーザー好み設定取得エラー: $e');
       return null;
     }
+  }
+
+  /// 簡易版の好み設定取得（互換性用）
+  Future<UserPreferenceModel?> getPreferences() async {
+    // この実装では、Firebase Authから現在のユーザーIDを取得する必要があります
+    // 一時的にnullを返す（実際の実装では認証サービスと連携）
+    return null;
   }
 
   /// ユーザー好み設定を保存
@@ -63,9 +70,6 @@ class UserPreferenceService {
       await _firestoreService.saveUserPreferences(userId, preferences);
 
       print('✅ ユーザー好み設定保存完了: $userId');
-      print('📊 保存内容: ${preferences.debugSummary}');
-      print('🎯 カメラ分析適用: ${preferences.isApplicableForCamera}');
-      print('🗺️ エリア分析適用: ${preferences.isApplicableForArea}');
 
       return true;
     } catch (e) {
@@ -103,7 +107,6 @@ class UserPreferenceService {
     final transportSettings = [
       preferences.prioritizeStationAccess,
       preferences.prioritizeMultipleLines,
-      preferences.prioritizeBusAccess,
       preferences.prioritizeCarAccess,
     ];
 
@@ -147,13 +150,12 @@ class UserPreferenceService {
 
   /// 設定の完成度をチェック
   PreferenceCompleteness checkCompleteness(UserPreferenceModel preferences) {
-    int totalItems = 9; // 全設定項目数
+    int totalItems = 8; // 全設定項目数（prioritizeBusAccessを除く）
     int configuredItems = 0;
 
     // 交通設定
     if (preferences.prioritizeStationAccess) configuredItems++;
     if (preferences.prioritizeMultipleLines) configuredItems++;
-    if (preferences.prioritizeBusAccess) configuredItems++;
     if (preferences.prioritizeCarAccess) configuredItems++;
 
     // 施設設定
@@ -172,7 +174,7 @@ class UserPreferenceService {
       configuredItems: configuredItems,
       completenessRatio: completenessRatio,
       isMinimallyConfigured: configuredItems >= 3, // 最低3項目
-      isWellConfigured: configuredItems >= 6, // 推奨6項目以上
+      isWellConfigured: configuredItems >= 5, // 推奨5項目以上（バス設定削除により調整）
       isFullyConfigured: configuredItems == totalItems,
     );
   }
@@ -181,10 +183,6 @@ class UserPreferenceService {
 
   /// カメラ分析用のプロンプト文字列を生成
   String generateCameraAnalysisPrompt(UserPreferenceModel preferences) {
-    if (!preferences.isApplicableForCamera) {
-      return ''; // 個人化不要
-    }
-
     final promptParts = <String>[];
 
     // ライフスタイル重視
@@ -213,17 +211,12 @@ class UserPreferenceService {
 
   /// エリア分析用のプロンプト文字列を生成
   String generateAreaAnalysisPrompt(UserPreferenceModel preferences) {
-    if (!preferences.isApplicableForArea) {
-      return ''; // 個人化不要
-    }
-
     final promptParts = <String>[];
 
     // 交通重視
     final transport = <String>[];
     if (preferences.prioritizeStationAccess) transport.add('駅近重視');
     if (preferences.prioritizeMultipleLines) transport.add('複数路線重視');
-    if (preferences.prioritizeBusAccess) transport.add('バス便重視');
     if (preferences.prioritizeCarAccess) transport.add('車利用重視');
 
     if (transport.isNotEmpty) {
@@ -274,15 +267,6 @@ class UserPreferenceService {
     } else {
       report.writeln('   ❌ 設定不足');
     }
-
-    report.writeln('');
-
-    // 機能別適用状況
-    report.writeln('🎯 機能別適用:');
-    report.writeln(
-        '   📷 カメラ分析: ${preferences.isApplicableForCamera ? "個人化対応" : "基本分析"}');
-    report.writeln(
-        '   🗺️ エリア分析: ${preferences.isApplicableForArea ? "個人化対応" : "基本分析"}');
 
     report.writeln('');
 
@@ -339,10 +323,6 @@ class UserPreferenceService {
         if (preferences.prioritizeMultipleLines) {
           stats['prioritizeMultipleLines'] =
               (stats['prioritizeMultipleLines'] ?? 0) + 1;
-        }
-        if (preferences.prioritizeBusAccess) {
-          stats['prioritizeBusAccess'] =
-              (stats['prioritizeBusAccess'] ?? 0) + 1;
         }
         if (preferences.prioritizeCarAccess) {
           stats['prioritizeCarAccess'] =

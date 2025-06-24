@@ -2,21 +2,20 @@
 
 import 'constants.dart';
 
+/// 住所の種別を定義
+enum AddressType {
+  exact, // 正確な住所
+  district, // 地区レベル
+  station, // 駅名
+  landmark, // ランドマーク
+  unclear, // 判別不明
+}
+
 /// Maisoku AI v1.0: 住所バリデーション専用クラス
 /// 日本の住所形式チェック・エラーメッセージ生成・信頼度判定
 class AddressValidator {
-  // === 住所タイプ定義 ===
-  
-  /// 住所の種別を定義
-  enum AddressType {
-    station,    // 駅名
-    address,    // 通常の住所 
-    landmark,   // ランドマーク
-    unclear,    // 判別不明
-  }
-
   // === 住所タイプ判定 ===
-  
+
   /// 入力内容から住所タイプを自動判定
   static AddressType detectAddressType(String input) {
     if (!isValidInput(input)) return AddressType.unclear;
@@ -25,7 +24,8 @@ class AddressValidator {
 
     // 優先順位に従って判定
     if (_isStationName(cleanInput)) return AddressType.station;
-    if (_isAddress(cleanInput)) return AddressType.address;
+    if (_isExactAddress(cleanInput)) return AddressType.exact;
+    if (_isDistrictAddress(cleanInput)) return AddressType.district;
     if (_isLandmark(cleanInput)) return AddressType.landmark;
 
     return AddressType.unclear;
@@ -35,24 +35,56 @@ class AddressValidator {
   static bool _isStationName(String input) {
     // 駅名の典型的な語尾
     final List<String> stationSuffixes = [
-      '駅', 'station', 'Station', 'STATION',
-      '駅前', '駅南', '駅北', '駅東', '駅西',
+      '駅',
+      'station',
+      'Station',
+      'STATION',
+      '駅前',
+      '駅南',
+      '駅北',
+      '駅東',
+      '駅西',
     ];
 
     // 鉄道会社・路線の接頭語
     final List<String> railwayPrefixes = [
-      'JR', 'jr', 'Jr',
-      '地下鉄', 'メトロ', '私鉄',
-      '東急', '京急', '小田急', '京王', '西武', '東武',
-      '京成', '東京メトロ', '都営',
-      '阪急', '阪神', '南海', '近鉄',
+      'JR',
+      'jr',
+      'Jr',
+      '地下鉄',
+      'メトロ',
+      '私鉄',
+      '東急',
+      '京急',
+      '小田急',
+      '京王',
+      '西武',
+      '東武',
+      '京成',
+      '東京メトロ',
+      '都営',
+      '阪急',
+      '阪神',
+      '南海',
+      '近鉄',
     ];
 
     // 路線・駅関連キーワード
     final List<String> stationKeywords = [
-      '線', 'ライン', '本線', '支線', '新線',
-      '口', '改札', 'ホーム', '番線',
-      '中央改札', '東改札', '西改札', '南改札', '北改札',
+      '線',
+      'ライン',
+      '本線',
+      '支線',
+      '新線',
+      '口',
+      '改札',
+      'ホーム',
+      '番線',
+      '中央改札',
+      '東改札',
+      '西改札',
+      '南改札',
+      '北改札',
     ];
 
     // 語尾チェック
@@ -73,30 +105,41 @@ class AddressValidator {
     return false;
   }
 
-  /// 通常住所パターンの判定
-  static bool _isAddress(String input) {
-    // 日本の住所階層キーワード
-    final List<String> prefectureKeywords = [
-      '都', '道', '府', '県'
-    ];
-    
-    final List<String> cityKeywords = [
-      '市', '区', '町', '村'
-    ];
-    
-    final List<String> streetKeywords = [
+  /// 正確な住所パターンの判定
+  static bool _isExactAddress(String input) {
+    // 詳細な住所要素（番地・号まで含む）
+    final List<String> exactKeywords = [
       '丁目', '番地', '番', '号',
       'ー', '−', '-', '–', // ハイフン類
-    ];
-    
-    final List<String> buildingKeywords = [
       'マンション', 'アパート', 'ハイツ', 'コーポ',
       'ビル', 'タワー', 'ハウス', 'レジデンス',
       '棟', '階', '号室', '室',
     ];
 
+    int exactCount = 0;
+    for (String keyword in exactKeywords) {
+      if (input.contains(keyword)) {
+        exactCount++;
+      }
+    }
+
+    // 数字パターンもチェック
+    if (RegExp(r'\d+[-−ー]\d+').hasMatch(input)) {
+      exactCount += 2; // 番地形式に高い重み
+    }
+
+    return exactCount >= 2;
+  }
+
+  /// 地区レベル住所パターンの判定
+  static bool _isDistrictAddress(String input) {
+    // 日本の住所階層キーワード
+    final List<String> prefectureKeywords = ['都', '道', '府', '県'];
+
+    final List<String> cityKeywords = ['市', '区', '町', '村'];
+
     int matchCount = 0;
-    
+
     // 都道府県レベル
     for (String keyword in prefectureKeywords) {
       if (input.contains(keyword)) {
@@ -104,27 +147,11 @@ class AddressValidator {
         break;
       }
     }
-    
+
     // 市区町村レベル
     for (String keyword in cityKeywords) {
       if (input.contains(keyword)) {
         matchCount += 2;
-        break;
-      }
-    }
-    
-    // 街区レベル
-    for (String keyword in streetKeywords) {
-      if (input.contains(keyword)) {
-        matchCount++;
-        break;
-      }
-    }
-    
-    // 建物レベル
-    for (String keyword in buildingKeywords) {
-      if (input.contains(keyword)) {
-        matchCount++;
         break;
       }
     }
@@ -142,30 +169,57 @@ class AddressValidator {
   static bool _isLandmark(String input) {
     // 位置表現キーワード
     final List<String> locationKeywords = [
-      '近く', '付近', '周辺', 'あたり', '界隈',
-      'そば', 'となり', '隣', '向かい', '前',
+      '近く',
+      '付近',
+      '周辺',
+      'あたり',
+      '界隈',
+      'そば',
+      'となり',
+      '隣',
+      '向かい',
+      '前',
     ];
-    
+
     // 大型施設キーワード
     final List<String> facilityKeywords = [
-      'ショッピングモール', 'イオン', 'ららぽーと',
-      'デパート', '百貨店', '商店街',
-      'アウトレット', 'ビックカメラ', 'ヨドバシ',
+      'ショッピングモール',
+      'イオン',
+      'ららぽーと',
+      'デパート',
+      '百貨店',
+      '商店街',
+      'アウトレット',
+      'ビックカメラ',
+      'ヨドバシ',
     ];
-    
+
     // 公共施設・観光地キーワード
     final List<String> publicKeywords = [
-      '公園', '神社', '寺', '教会',
-      '病院', '大学', '学校', '高校',
-      'タワー', 'スカイツリー', '東京駅',
-      '渋谷', '新宿', '池袋', '銀座',
-      '市役所', '区役所', '図書館',
+      '公園',
+      '神社',
+      '寺',
+      '教会',
+      '病院',
+      '大学',
+      '学校',
+      '高校',
+      'タワー',
+      'スカイツリー',
+      '東京駅',
+      '渋谷',
+      '新宿',
+      '池袋',
+      '銀座',
+      '市役所',
+      '区役所',
+      '図書館',
     ];
 
     // いずれかのカテゴリにマッチするかチェック
     final List<List<String>> allCategories = [
       locationKeywords,
-      facilityKeywords, 
+      facilityKeywords,
       publicKeywords,
     ];
 
@@ -179,20 +233,21 @@ class AddressValidator {
   }
 
   // === 入力バリデーション ===
-  
+
   /// 入力内容の基本的な妥当性をチェック
   static bool isValidInput(String input) {
     final String trimmed = input.trim();
-    
+
     // 空文字チェック
     if (trimmed.isEmpty) return false;
-    
+
     // 文字数チェック
     if (trimmed.length < AppConstants.MIN_ADDRESS_LENGTH) return false;
     if (trimmed.length > AppConstants.MAX_ADDRESS_LENGTH) return false;
 
     // 特殊文字のみの入力を除外
-    final RegExp specialCharsOnly = RegExp(r'^[^\p{L}\p{N}\s\-\(\)（）]+$', unicode: true);
+    final RegExp specialCharsOnly =
+        RegExp(r'^[^\p{L}\p{N}\s\-\(\)（）]+$', unicode: true);
     if (specialCharsOnly.hasMatch(trimmed)) return false;
 
     // 数字のみの入力を除外（郵便番号など）
@@ -205,7 +260,7 @@ class AddressValidator {
   /// リアルタイムバリデーション用エラーメッセージ生成
   static String getValidationErrorMessage(String input) {
     final String trimmed = input.trim();
-    
+
     if (trimmed.isEmpty) {
       return '住所・駅名・ランドマークを入力してください';
     }
@@ -219,7 +274,8 @@ class AddressValidator {
     }
 
     // 特殊文字のみチェック
-    final RegExp specialCharsOnly = RegExp(r'^[^\p{L}\p{N}\s\-\(\)（）]+$', unicode: true);
+    final RegExp specialCharsOnly =
+        RegExp(r'^[^\p{L}\p{N}\s\-\(\)（）]+$', unicode: true);
     if (specialCharsOnly.hasMatch(trimmed)) {
       return '有効な住所・駅名・ランドマークを入力してください';
     }
@@ -240,7 +296,7 @@ class AddressValidator {
   }
 
   // === 住所正規化 ===
-  
+
   /// 住所入力の前処理・正規化
   static String normalizeInput(String input) {
     String normalized = input.trim();
@@ -259,21 +315,17 @@ class AddressValidator {
 
     // 不要な記号を除去（日本語・数字・基本記号は残す）
     normalized = normalized.replaceAll(
-      RegExp(r'[^\p{L}\p{N}\s\-\(\)（）]', unicode: true), 
-      ''
-    );
+        RegExp(r'[^\p{L}\p{N}\s\-\(\)（）]', unicode: true), '');
 
     return normalized.trim();
   }
 
   /// 全角英数字を半角に変換
   static String _convertFullWidthToHalfWidth(String input) {
-    const String fullWidth = 
-        '０１２３４５６７８９'
+    const String fullWidth = '０１２３４５６７８９'
         'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ'
         'ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ';
-    const String halfWidth = 
-        '0123456789'
+    const String halfWidth = '0123456789'
         'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
         'abcdefghijklmnopqrstuvwxyz';
 
@@ -286,7 +338,7 @@ class AddressValidator {
   }
 
   // === 信頼度・品質評価 ===
-  
+
   /// 住所の信頼度スコアを算出（0.0-1.0）
   static double calculateConfidenceScore(String input, AddressType type) {
     if (!isValidInput(input)) return 0.0;
@@ -301,11 +353,16 @@ class AddressValidator {
         if (input.contains('線')) score += 0.1;
         break;
 
-      case AddressType.address:
+      case AddressType.exact:
+        if (input.contains('丁目') || input.contains('番地')) score += 0.3;
+        if (RegExp(r'\d+[-−ー]\d+').hasMatch(input)) score += 0.3;
+        if (input.contains('マンション') || input.contains('アパート')) score += 0.1;
+        break;
+
+      case AddressType.district:
         if (input.contains('都') || input.contains('県')) score += 0.2;
         if (input.contains('市') || input.contains('区')) score += 0.2;
-        if (input.contains('丁目') || input.contains('番地')) score += 0.2;
-        if (RegExp(r'\d+').hasMatch(input)) score += 0.1; // 数字含有
+        if (RegExp(r'\d+').hasMatch(input)) score += 0.1;
         break;
 
       case AddressType.landmark:
@@ -341,13 +398,13 @@ class AddressValidator {
     final bool hasKanji = RegExp(r'[\u4e00-\u9faf]').hasMatch(input);
     final bool hasHiragana = RegExp(r'[\u3040-\u309f]').hasMatch(input);
     final bool hasNumbers = RegExp(r'\d').hasMatch(input);
-    
+
     // 漢字・ひらがな・数字のバランスをチェック
     int componentCount = 0;
     if (hasKanji) componentCount++;
     if (hasHiragana) componentCount++;
     if (hasNumbers) componentCount++;
-    
+
     return componentCount >= 2; // 2種類以上の文字種を含む
   }
 
@@ -355,19 +412,24 @@ class AddressValidator {
   static int getRecommendedRadius(AddressType type, double confidence) {
     switch (type) {
       case AddressType.station:
-        return confidence > 0.8 
-          ? AppConstants.STATION_ANALYSIS_RADIUS 
-          : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
+        return confidence > 0.8
+            ? AppConstants.STATION_ANALYSIS_RADIUS
+            : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
 
-      case AddressType.address:
-        return confidence > 0.8 
-          ? AppConstants.DEFAULT_ANALYSIS_RADIUS 
-          : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
+      case AddressType.exact:
+        return confidence > 0.8
+            ? AppConstants.DEFAULT_ANALYSIS_RADIUS
+            : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
+
+      case AddressType.district:
+        return confidence > 0.8
+            ? AppConstants.DEFAULT_ANALYSIS_RADIUS
+            : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
 
       case AddressType.landmark:
-        return confidence > 0.7 
-          ? AppConstants.LANDMARK_ANALYSIS_RADIUS 
-          : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
+        return confidence > 0.7
+            ? AppConstants.LANDMARK_ANALYSIS_RADIUS
+            : AppConstants.UNCLEAR_ANALYSIS_RADIUS;
 
       case AddressType.unclear:
         return AppConstants.UNCLEAR_ANALYSIS_RADIUS;
@@ -375,7 +437,7 @@ class AddressValidator {
   }
 
   // === 住所候補の優先度付け ===
-  
+
   /// 検索候補のスコアリング・ソート
   static List<T> prioritizeSuggestions<T>(
     List<T> suggestions,
@@ -389,7 +451,8 @@ class AddressValidator {
     // スコア付きリストを作成
     List<MapEntry<T, double>> scoredSuggestions = suggestions.map((suggestion) {
       final String suggestionValue = getValue(suggestion).toLowerCase();
-      final double score = _calculateSimilarityScore(normalizedInput, suggestionValue);
+      final double score =
+          _calculateSimilarityScore(normalizedInput, suggestionValue);
       return MapEntry(suggestion, score);
     }).toList();
 
@@ -428,7 +491,7 @@ class AddressValidator {
   }
 
   // === 住所品質評価 ===
-  
+
   /// 住所の品質グレードを判定
   static String getQualityGrade(double confidence) {
     if (confidence >= 0.9) return 'S'; // 優秀
@@ -441,17 +504,23 @@ class AddressValidator {
   /// 品質グレードの説明文を取得
   static String getQualityDescription(String grade) {
     switch (grade) {
-      case 'S': return '非常に正確な住所です';
-      case 'A': return '正確な住所です';
-      case 'B': return '利用可能な住所です';
-      case 'C': return '住所の精度に注意が必要です';
-      case 'D': return '住所の確認をお勧めします';
-      default: return '住所を確認してください';
+      case 'S':
+        return '非常に正確な住所です';
+      case 'A':
+        return '正確な住所です';
+      case 'B':
+        return '利用可能な住所です';
+      case 'C':
+        return '住所の精度に注意が必要です';
+      case 'D':
+        return '住所の確認をお勧めします';
+      default:
+        return '住所を確認してください';
     }
   }
 
   // === デバッグ・開発支援 ===
-  
+
   /// 住所分析の詳細情報を生成
   static Map<String, dynamic> generateAnalysisInfo(String input) {
     final String normalized = normalizeInput(input);
@@ -477,10 +546,16 @@ class AddressValidator {
   /// 住所タイプの日本語名を取得
   static String getAddressTypeDisplayName(AddressType type) {
     switch (type) {
-      case AddressType.station: return '駅名';
-      case AddressType.address: return '住所';
-      case AddressType.landmark: return 'ランドマーク';
-      case AddressType.unclear: return '不明';
+      case AddressType.exact:
+        return '詳細住所';
+      case AddressType.district:
+        return '地区住所';
+      case AddressType.station:
+        return '駅名';
+      case AddressType.landmark:
+        return 'ランドマーク';
+      case AddressType.unclear:
+        return '不明';
     }
   }
 
@@ -490,11 +565,12 @@ class AddressValidator {
     if (AppConstants.MIN_ADDRESS_LENGTH >= AppConstants.MAX_ADDRESS_LENGTH) {
       return false;
     }
-    
-    if (AppConstants.MIN_ADDRESS_CONFIDENCE >= AppConstants.HIGH_ADDRESS_CONFIDENCE) {
+
+    if (AppConstants.MIN_ADDRESS_CONFIDENCE >=
+        AppConstants.HIGH_ADDRESS_CONFIDENCE) {
       return false;
     }
-    
+
     return true;
   }
 }

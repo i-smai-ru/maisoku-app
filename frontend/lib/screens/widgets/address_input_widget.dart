@@ -46,7 +46,7 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
   late TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
 
-  // Google Places候補
+  // Google Places候補 - AddressSuggestion型を使用
   List<AddressSuggestion> _suggestions = [];
   bool _isLoadingSuggestions = false;
   bool _showSuggestions = false;
@@ -195,16 +195,20 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
 
   /// Google Places候補選択
   Future<void> _selectSuggestion(AddressSuggestion suggestion) async {
+    // AddressSuggestion の description プロパティを使用
+    final String description = suggestion.description;
+
     setState(() {
-      _controller.text = suggestion.description;
+      _controller.text = description;
       _showSuggestions = false;
       _isProcessing = true;
       _errorMessage = '';
     });
 
     try {
-      final AddressModel? address = await widget.addressService
-          .getAddressFromPlaceId(suggestion.placeId, suggestion.description);
+      // normalizeAddress を使用して住所を処理
+      final AddressModel? address =
+          await widget.addressService.normalizeAddress(description);
 
       if (address != null) {
         widget.onAddressSelected(address);
@@ -498,6 +502,7 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
                       itemCount: _suggestions.length,
                       itemBuilder: (context, index) {
                         final suggestion = _suggestions[index];
+
                         return ListTile(
                           dense: true,
                           leading: Icon(
@@ -526,15 +531,4 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
       ),
     );
   }
-}
-
-/// Google Places候補アイテム
-class AddressSuggestion {
-  final String description;
-  final String placeId;
-
-  const AddressSuggestion({
-    required this.description,
-    required this.placeId,
-  });
 }

@@ -60,7 +60,7 @@ class AnalysisHistoryEntry {
       analysisTextSummary: summary,
       analysisTextFull: analysisText,
       imageURL: imageURL,
-      imagePath: imagePath,
+      imagePath: imagePath ?? '',
       isPersonalized: isPersonalized,
       preferenceSnapshot: preferenceSnapshot,
       analysisVersion: '1.0',
@@ -100,7 +100,6 @@ class AnalysisHistoryEntry {
       'preferenceSnapshot': preferenceSnapshot,
       'analysisVersion': analysisVersion,
       'processingTimeSeconds': processingTimeSeconds,
-      'ocrText': ocrText, // 互換性のため保持
       // imagePathはローカル用のため保存しない
     };
   }

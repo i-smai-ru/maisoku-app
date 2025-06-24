@@ -292,31 +292,15 @@ class UserPreferenceModel {
   // === プライベートヘルパー ===
 
   String _getLifestyleDisplayName(String type) {
-    switch (type) {
-      case PreferenceConstants.lifestyleSingle:
-        return '単身者';
-      case PreferenceConstants.lifestyleCouple:
-        return '夫婦・カップル';
-      case PreferenceConstants.lifestyleFamily:
-        return '子育て世帯';
-      case PreferenceConstants.lifestyleSenior:
-        return 'シニア世帯';
-      default:
-        return type;
-    }
+    // AppConstantsのLIFESTYLE_TYPESマップから取得
+    final lifestyleTypes = AppConstants.LIFESTYLE_TYPES;
+    return lifestyleTypes[type] ?? type;
   }
 
   String _getBudgetDisplayName(String priority) {
-    switch (priority) {
-      case PreferenceConstants.budgetCost:
-        return 'コスト重視';
-      case PreferenceConstants.budgetBalance:
-        return 'バランス重視';
-      case PreferenceConstants.budgetConvenience:
-        return '利便性重視';
-      default:
-        return priority;
-    }
+    // AppConstantsのBUDGET_PRIORITIESマップから取得
+    final budgetPriorities = AppConstants.BUDGET_PRIORITIES;
+    return budgetPriorities[priority] ?? priority;
   }
 
   // === 分析タイプ判定 ===
@@ -324,8 +308,8 @@ class UserPreferenceModel {
   /// 分析タイプを返す（基本 or 個人化）
   String get analysisType {
     return isEmpty
-        ? AnalysisConstants.basicAnalysis
-        : AnalysisConstants.personalizedAnalysis;
+        ? AppConstants.ANALYSIS_MODE_BASIC
+        : AppConstants.ANALYSIS_MODE_PERSONALIZED;
   }
 
   /// 個人化分析が可能か

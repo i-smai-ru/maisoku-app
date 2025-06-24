@@ -8,14 +8,10 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 class ApiErrorHandler {
   // === v1.0 Cloud Run APIエンドポイント定義 ===
 
-  // Cloud Run メインAPI
+  // Cloud Run メインAPI（実際に使用）
   static const String CLOUD_RUN_CAMERA_ANALYSIS = 'cloud_run_camera_analysis';
   static const String CLOUD_RUN_AREA_ANALYSIS = 'cloud_run_area_analysis';
   static const String CLOUD_RUN_ANALYSIS_HISTORY = 'cloud_run_analysis_history';
-
-  // Legacy API（フォールバック用）
-  static const String GEMINI_VISION = 'gemini_vision';
-  static const String GEMINI_TEXT = 'gemini_text';
 
   // Firebase API
   static const String FIREBASE_AUTH = 'firebase_auth';
@@ -23,9 +19,12 @@ class ApiErrorHandler {
   static const String FIRESTORE_WRITE = 'firestore_write';
   static const String FIREBASE_STORAGE = 'firebase_storage';
 
-  // Google Maps API
+  // Google Maps API（将来実装予定）
   static const String GOOGLE_MAPS_GEOCODING = 'google_maps_geocoding';
   static const String GOOGLE_PLACES = 'google_places';
+
+  // カメラ分析用定数（下位互換性のため）
+  static const String CAMERA_ANALYSIS = 'camera_analysis';
 
   /// === Cloud Run API統合エラーハンドリング ===
 
@@ -75,6 +74,108 @@ class ApiErrorHandler {
       'request_data_size': requestData?.length ?? 0,
       'api_version': 'v1.0',
       'error_type': 'cloud_run_api',
+    });
+
+    return userMessage;
+  }
+
+  /// === Camera Screen用の簡易エラーハンドリング ===
+
+  /// camera_screen.dartで使用される2引数版のgetErrorMessage
+  static String getErrorMessage(String apiType, dynamic error) {
+    String errorString = error.toString().toLowerCase();
+    String userMessage = 'エラーが発生しました';
+
+    // エラーの種類を判定
+    if (errorString.contains('timeout') || errorString.contains('deadline')) {
+      userMessage = 'タイムアウトが発生しました。もう一度お試しください';
+    } else if (errorString.contains('network') ||
+        errorString.contains('internet') ||
+        errorString.contains('connection')) {
+      userMessage = 'ネットワーク接続を確認してください';
+    } else if (errorString.contains('server') ||
+        errorString.contains('http') ||
+        errorString.contains('500')) {
+      userMessage = 'サーバーエラーが発生しました';
+    } else if (errorString.contains('permission') ||
+        errorString.contains('auth')) {
+      userMessage = '権限エラーが発生しました';
+    } else if (errorString.contains('format') ||
+        errorString.contains('invalid')) {
+      userMessage = 'データ形式に問題があります';
+    }
+
+    // API種別による特別なメッセージ
+    switch (apiType) {
+      case CAMERA_ANALYSIS:
+      case CLOUD_RUN_CAMERA_ANALYSIS:
+        if (errorString.contains('image') || errorString.contains('photo')) {
+          userMessage = '画像の処理に失敗しました';
+        } else {
+          userMessage = 'カメラ分析でエラーが発生しました';
+        }
+        break;
+      case FIREBASE_AUTH:
+        userMessage = 'ログインに失敗しました';
+        break;
+      case FIREBASE_STORAGE:
+        userMessage = '画像の保存に失敗しました';
+        break;
+    }
+
+    // エラーを記録
+    recordError(apiType, userMessage, {
+      'error_type': 'general_error',
+      'original_error': error.toString(),
+      'user_message': userMessage,
+    });
+
+    return userMessage;
+  }
+
+  /// 3引数版のgetErrorMessage（下位互換性のため）
+  static String getErrorMessageWithStatus(
+      String apiType, int? statusCode, String? originalError) {
+    String userMessage = '取得できませんでした';
+
+    if (statusCode != null) {
+      switch (statusCode) {
+        case 400:
+          userMessage = 'リクエストエラーが発生しました';
+          break;
+        case 401:
+        case 403:
+          userMessage = '認証エラーが発生しました';
+          break;
+        case 429:
+          userMessage = 'アクセス制限により一時的に利用できません';
+          break;
+        case 500:
+        case 502:
+        case 503:
+          userMessage = 'サーバーエラーが発生しました';
+          break;
+        case 504:
+          userMessage = 'タイムアウトが発生しました';
+          break;
+        default:
+          userMessage = 'ネットワークエラーが発生しました';
+      }
+    }
+
+    // 詳細ログ出力
+    String detailLog = 'API Error Details:\n'
+        'Type: $apiType\n'
+        'Status Code: ${statusCode ?? 'unknown'}\n'
+        'Original Error: ${originalError ?? 'none'}\n'
+        'Time: ${DateTime.now()}';
+    _debugPrint(detailLog);
+
+    // Crashlyticsに記録
+    recordError(apiType, '$userMessage (Status: $statusCode)', {
+      'status_code': statusCode,
+      'original_error': originalError,
+      'user_message': userMessage,
     });
 
     return userMessage;
@@ -235,8 +336,7 @@ class ApiErrorHandler {
       CLOUD_RUN_ANALYSIS_HISTORY: '分析履歴',
 
       // Legacy API
-      GEMINI_VISION: 'AI画像分析',
-      GEMINI_TEXT: 'AI分析',
+      CAMERA_ANALYSIS: 'カメラ分析',
 
       // Firebase API
       FIREBASE_AUTH: 'ログイン',
@@ -293,6 +393,7 @@ class ApiErrorHandler {
       case CLOUD_RUN_CAMERA_ANALYSIS:
       case CLOUD_RUN_AREA_ANALYSIS:
       case CLOUD_RUN_ANALYSIS_HISTORY:
+      case CAMERA_ANALYSIS:
         return statusCode == null || statusCode >= 500 || statusCode == 429;
       case FIREBASE_AUTH:
         return false; // 認証エラーは基本的に再試行不可
@@ -324,6 +425,7 @@ class ApiErrorHandler {
     if (apiType.startsWith('firebase_')) return 'firebase_api';
     if (apiType.startsWith('google_')) return 'google_api';
     if (apiType.contains('gemini')) return 'ai_api';
+    if (apiType.contains('camera')) return 'camera_api';
     return 'other';
   }
 

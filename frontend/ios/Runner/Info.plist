@@ -45,6 +45,15 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	
+	<!-- 🔧 カメラとフォトライブラリのプライバシー許可を追加 -->
+	<key>NSCameraUsageDescription</key>
+	<string>物件写真や間取り図を撮影してAI分析に使用します</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>保存済みの物件写真を選択してAI分析に使用します</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>カメラ機能で音声は使用しませんが、カメラアクセスに必要です</string>
+	
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

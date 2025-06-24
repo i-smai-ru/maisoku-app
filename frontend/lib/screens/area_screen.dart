@@ -107,7 +107,7 @@ class _AreaScreenState extends State<AreaScreen> {
       return;
     }
 
-    if (!AddressValidator.isValidAddress(_inputAddress)) {
+    if (!AddressValidator.isValidInput(_inputAddress)) {
       _showErrorSnackBar('有効な住所を入力してください');
       return;
     }
@@ -248,7 +248,7 @@ class _AreaScreenState extends State<AreaScreen> {
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
+        padding: const EdgeInsets.all(AppConstants.PADDING_MEDIUM),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -264,7 +264,7 @@ class _AreaScreenState extends State<AreaScreen> {
                   end: Alignment.bottomRight,
                 ),
                 borderRadius:
-                    BorderRadius.circular(AppConstants.cardBorderRadius),
+                    BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
               ),
               child: Column(
                 children: [
@@ -352,7 +352,7 @@ class _AreaScreenState extends State<AreaScreen> {
               decoration: BoxDecoration(
                 color: Colors.green[50],
                 borderRadius:
-                    BorderRadius.circular(AppConstants.cardBorderRadius),
+                    BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
                 border: Border.all(color: Colors.green[200]!),
               ),
               child: Column(
@@ -403,7 +403,7 @@ class _AreaScreenState extends State<AreaScreen> {
         ),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
+        padding: const EdgeInsets.all(AppConstants.PADDING_MEDIUM),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -469,7 +469,7 @@ class _AreaScreenState extends State<AreaScreen> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius:
-                      BorderRadius.circular(AppConstants.buttonBorderRadius),
+                      BorderRadius.circular(AppConstants.BUTTON_BORDER_RADIUS),
                 ),
               ),
             ),
@@ -597,7 +597,7 @@ class _AreaScreenState extends State<AreaScreen> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
+        padding: const EdgeInsets.all(AppConstants.PADDING_MEDIUM),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

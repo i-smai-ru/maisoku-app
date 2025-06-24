@@ -21,16 +21,19 @@ import '../models/analysis_history_entry.dart';
 import '../utils/constants.dart';
 import '../utils/api_error_handler.dart';
 
+// Config
+import '../config/api_config.dart';
+
 enum CameraAnalysisState {
-  initial, // 初期状態
-  photoChoice, // 写真選択方法選択
-  capturing, // カメラ撮影中
-  analyzing, // API分析中
-  results, // 結果表示
+  initial,
+  photoChoice,
+  capturing,
+  analyzing,
+  results,
 }
 
 class CameraScreen extends StatefulWidget {
-  final String? initialImageUrl; // 履歴からの再分析用
+  final String? initialImageUrl;
 
   const CameraScreen({
     Key? key,
@@ -48,6 +51,7 @@ class _CameraScreenState extends State<CameraScreen>
   List<CameraDescription>? _cameras;
   bool _isCameraInitialized = false;
   bool _isRearCameraSelected = true;
+  bool _cameraInitializationFailed = false;
 
   // === 状態管理 ===
   CameraAnalysisState _currentState = CameraAnalysisState.initial;
@@ -61,6 +65,8 @@ class _CameraScreenState extends State<CameraScreen>
   bool _isAnalyzing = false;
   bool _isSaving = false;
   bool _isSaved = false;
+  bool _isInitializing = true;
+  String _initializationError = '';
 
   // === Services ===
   final ImagePicker _picker = ImagePicker();
@@ -71,22 +77,21 @@ class _CameraScreenState extends State<CameraScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    print('📱 CameraScreen: initState開始');
 
+    WidgetsBinding.instance.addObserver(this);
     _userPreferenceService =
         UserPreferenceService(firestoreService: _firestoreService);
 
-    _initializeCamera();
-    _loadUserPreferences();
-
-    // 履歴からの画像がある場合は自動で処理開始
-    if (widget.initialImageUrl != null) {
-      _loadImageFromUrl(widget.initialImageUrl!);
-    }
+    // 安全な非同期初期化
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _safeInitialize();
+    });
   }
 
   @override
   void dispose() {
+    print('📱 CameraScreen: dispose開始');
     _cameraController?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -102,19 +107,96 @@ class _CameraScreenState extends State<CameraScreen>
     if (state == AppLifecycleState.inactive) {
       cameraController.dispose();
     } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
+      _initializeCameraLazy();
     }
   }
 
-  // === 初期化・設定 ===
+  // === 安全な初期化処理 ===
 
-  Future<void> _initializeCamera() async {
+  /// 安全な初期化（カメラ初期化を遅延）
+  Future<void> _safeInitialize() async {
+    print('📱 CameraScreen: _safeInitialize開始');
+
     try {
-      _cameras = await availableCameras();
-      if (_cameras == null || _cameras!.isEmpty) {
-        _showErrorSnackBar('利用可能なカメラが見つかりません');
-        return;
+      setState(() {
+        _isInitializing = true;
+        _initializationError = '';
+      });
+
+      // 段階1: 基本サービス初期化
+      print('📱 段階1: 基本サービス初期化');
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // 段階2: UserPreferences読み込み（タイムアウト付き）
+      print('📱 段階2: UserPreferences読み込み');
+      await _loadUserPreferencesWithTimeout();
+
+      // 段階3: カメラ一覧取得のみ（初期化は遅延）
+      print('📱 段階3: カメラ一覧取得');
+      await _getCameraListOnly();
+
+      // 段階4: 履歴からの画像処理
+      if (widget.initialImageUrl != null) {
+        print('📱 段階4: 履歴画像処理');
+        await _loadImageFromUrl(widget.initialImageUrl!);
       }
+
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+        print('📱 CameraScreen: 基本初期化完了（カメラ初期化は遅延）');
+      }
+    } catch (e) {
+      print('❌ CameraScreen: 初期化エラー: $e');
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _initializationError = '初期化エラー: $e';
+        });
+      }
+    }
+  }
+
+  /// カメラ一覧のみ取得（CameraController初期化なし）
+  Future<void> _getCameraListOnly() async {
+    try {
+      print('📷 カメラ一覧取得開始...');
+
+      _cameras = await availableCameras().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('⏰ カメラ一覧取得タイムアウト');
+          throw Exception('カメラ一覧取得がタイムアウトしました');
+        },
+      );
+
+      if (_cameras == null || _cameras!.isEmpty) {
+        throw Exception('利用可能なカメラが見つかりません');
+      }
+
+      print('✅ カメラ一覧取得完了: ${_cameras!.length}台');
+    } catch (e) {
+      print('❌ カメラ一覧取得エラー: $e');
+      setState(() {
+        _cameraInitializationFailed = true;
+      });
+      _showErrorSnackBar('カメラの確認に失敗しました: $e');
+    }
+  }
+
+  /// 遅延カメラ初期化（実際に撮影画面に移る時のみ）
+  Future<bool> _initializeCameraLazy() async {
+    if (_cameraInitializationFailed || _cameras == null || _cameras!.isEmpty) {
+      return false;
+    }
+
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      return true; // 既に初期化済み
+    }
+
+    try {
+      print('📷 遅延カメラ初期化開始...');
 
       final camera = _isRearCameraSelected ? _cameras!.first : _cameras!.last;
       _cameraController = CameraController(
@@ -123,34 +205,71 @@ class _CameraScreenState extends State<CameraScreen>
         enableAudio: false,
       );
 
-      await _cameraController!.initialize();
+      await _cameraController!.initialize().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          print('⏰ CameraController初期化タイムアウト');
+          throw Exception('カメラ初期化がタイムアウトしました');
+        },
+      );
 
       if (mounted) {
         setState(() {
           _isCameraInitialized = true;
+          _cameraInitializationFailed = false;
+        });
+        print('✅ 遅延カメラ初期化完了');
+      }
+      return true;
+    } catch (e) {
+      print('❌ 遅延カメラ初期化エラー: $e');
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = false;
+          _cameraInitializationFailed = true;
         });
       }
-    } catch (e) {
-      print('カメラ初期化エラー: $e');
-      _showErrorSnackBar('カメラの初期化に失敗しました');
+      _showErrorSnackBar('カメラの初期化に失敗しました: $e');
+      return false;
     }
   }
 
-  Future<void> _loadUserPreferences() async {
+  /// 旧版互換メソッド
+  Future<void> _initializeCamera() async {
+    await _initializeCameraLazy();
+  }
+
+  /// タイムアウト付きUserPreferences読み込み
+  Future<void> _loadUserPreferencesWithTimeout() async {
     try {
-      final prefs = await _userPreferenceService.getPreferences();
-      setState(() {
-        _userPreferences = prefs;
-      });
+      print('⚙️ UserPreferences読み込み開始...');
+
+      final prefs = await _userPreferenceService.getPreferences().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('⏰ UserPreferences読み込みタイムアウト');
+          return null;
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _userPreferences = prefs;
+        });
+        print('✅ UserPreferences読み込み完了: ${prefs != null ? "あり" : "なし"}');
+      }
     } catch (e) {
-      print('好み設定読み込みエラー: $e');
-      // エラーでも継続（好み設定なしで分析）
+      print('❌ UserPreferences読み込みエラー: $e');
     }
+  }
+
+  /// 旧版互換メソッド
+  Future<void> _loadUserPreferences() async {
+    return _loadUserPreferencesWithTimeout();
   }
 
   Future<void> _loadImageFromUrl(String imageUrl) async {
-    // TODO: URL から File に変換する処理
-    // 履歴からの再分析機能（将来実装）
+    print('📷 履歴画像読み込み: $imageUrl');
   }
 
   // === 写真選択・撮影 ===
@@ -159,6 +278,21 @@ class _CameraScreenState extends State<CameraScreen>
     setState(() {
       _currentState = CameraAnalysisState.photoChoice;
     });
+  }
+
+  /// 撮影画面に移る時にカメラを初期化
+  Future<void> _showCapturingState() async {
+    // カメラ初期化を試行
+    final success = await _initializeCameraLazy();
+
+    if (success) {
+      setState(() {
+        _currentState = CameraAnalysisState.capturing;
+      });
+    } else {
+      // カメラ初期化失敗時はギャラリー選択に誘導
+      _showErrorSnackBar('カメラが利用できません。ギャラリーから画像を選択してください。');
+    }
   }
 
   Future<void> _takePicture() async {
@@ -214,7 +348,7 @@ class _CameraScreenState extends State<CameraScreen>
       _isCameraInitialized = false;
     });
 
-    _initializeCamera();
+    _initializeCameraLazy();
   }
 
   // === 分析処理 ===
@@ -232,7 +366,6 @@ class _CameraScreenState extends State<CameraScreen>
     });
 
     try {
-      // Cloud Run API でカメラ分析
       final result = await ApiService.analyzeCameraImage(
         imageFile: _selectedImage!,
         preferences: _userPreferences?.toJson(),
@@ -247,7 +380,6 @@ class _CameraScreenState extends State<CameraScreen>
           _isAnalyzing = false;
         });
 
-        // 自動保存（ログイン済みの場合）
         if (FirebaseAuth.instance.currentUser != null) {
           _saveAnalysisHistory();
         }
@@ -277,33 +409,29 @@ class _CameraScreenState extends State<CameraScreen>
       return;
     }
 
-    if (_isSaved || _isSaving) return; // 重複保存防止
+    if (_isSaved || _isSaving) return;
 
     setState(() {
       _isSaving = true;
     });
 
     try {
-      // 画像をFirebase Storageにアップロード
-      final imageUrl = await _storageService.uploadImage(
+      final imageUrl = await _storageService.uploadAnalysisImage(
         _selectedImage!,
-        'users/${currentUser.uid}/camera_analysis',
+        currentUser.uid,
+        isPersonalized: _userPreferences != null,
       );
 
-      // 履歴エントリ作成
-      final historyEntry = AnalysisHistoryEntry(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+      final historyEntry = AnalysisHistoryEntry.fromCameraAnalysis(
         userId: currentUser.uid,
-        timestamp: DateTime.now(),
-        analysisTextSummary: _analysisResult!.analysis,
+        analysisText: _analysisResult!.analysis,
         imageURL: imageUrl,
-        analysisType: AnalysisConstants.cameraAnalysisType,
-        userPreferences: _userPreferences?.toJson() ?? {},
-        geminiModel: AnalysisConstants.geminiModel,
-        appVersion: AppConstants.appVersion,
+        imagePath: _selectedImage!.path,
+        isPersonalized: _userPreferences != null,
+        preferenceSnapshot: _userPreferences?.toJson().toString(),
+        processingTimeSeconds: _analysisResult!.processingTime,
       );
 
-      // Firestoreに保存
       await _firestoreService.saveAnalysisHistory(historyEntry);
 
       setState(() {
@@ -311,7 +439,7 @@ class _CameraScreenState extends State<CameraScreen>
         _isSaving = false;
       });
 
-      _showSuccessSnackBar(AppConstants.analysisSavedMessage);
+      _showSuccessSnackBar(AppConstants.SUCCESS_CAMERA_ANALYSIS_SAVED);
     } catch (e) {
       setState(() {
         _isSaving = false;
@@ -361,6 +489,17 @@ class _CameraScreenState extends State<CameraScreen>
 
   @override
   Widget build(BuildContext context) {
+    print(
+        '🏗️ CameraScreen: build実行 - state: $_currentState, initializing: $_isInitializing');
+
+    if (_isInitializing) {
+      return _buildInitializingScreen();
+    }
+
+    if (_initializationError.isNotEmpty) {
+      return _buildInitializationErrorScreen();
+    }
+
     switch (_currentState) {
       case CameraAnalysisState.initial:
         return _buildInitialState();
@@ -375,6 +514,115 @@ class _CameraScreenState extends State<CameraScreen>
     }
   }
 
+  Widget _buildInitializingScreen() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('カメラ分析'),
+        centerTitle: true,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.2),
+                      spreadRadius: 5,
+                      blurRadius: 7,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    const CircularProgressIndicator(strokeWidth: 3),
+                    const SizedBox(height: 24),
+                    const Text(
+                      '初期化中...',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'サービスを準備しています',
+                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInitializationErrorScreen() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('カメラ分析'),
+        centerTitle: true,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.error_outline, size: 64, color: Colors.red[600]),
+                    const SizedBox(height: 24),
+                    const Text(
+                      '初期化エラー',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _initializationError,
+                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _initializationError = '';
+                        });
+                        _safeInitialize();
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('再試行'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[600],
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInitialState() {
     return Scaffold(
       appBar: AppBar(
@@ -382,13 +630,12 @@ class _CameraScreenState extends State<CameraScreen>
         centerTitle: true,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
+        padding: const EdgeInsets.all(AppConstants.PADDING_MEDIUM),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 32),
 
-            // ヘッダー
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
@@ -398,7 +645,7 @@ class _CameraScreenState extends State<CameraScreen>
                   end: Alignment.bottomRight,
                 ),
                 borderRadius:
-                    BorderRadius.circular(AppConstants.cardBorderRadius),
+                    BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
               ),
               child: Column(
                 children: [
@@ -426,7 +673,6 @@ class _CameraScreenState extends State<CameraScreen>
 
             const SizedBox(height: 32),
 
-            // 開始ボタン
             ElevatedButton.icon(
               onPressed: _showPhotoChoice,
               icon: const Icon(Icons.camera_alt, size: 24),
@@ -440,20 +686,69 @@ class _CameraScreenState extends State<CameraScreen>
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius:
-                      BorderRadius.circular(AppConstants.buttonBorderRadius),
+                      BorderRadius.circular(AppConstants.BUTTON_BORDER_RADIUS),
                 ),
               ),
             ),
 
             const SizedBox(height: 24),
 
-            // 機能説明
+            // カメラ状態表示（遅延初期化対応）
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _cameraInitializationFailed
+                    ? Colors.red[50]
+                    : (_cameras != null ? Colors.green[50] : Colors.blue[50]),
+                borderRadius:
+                    BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
+                border: Border.all(
+                  color: _cameraInitializationFailed
+                      ? Colors.red[200]!
+                      : (_cameras != null
+                          ? Colors.green[200]!
+                          : Colors.blue[200]!),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _cameraInitializationFailed
+                        ? Icons.error
+                        : (_cameras != null ? Icons.check_circle : Icons.info),
+                    color: _cameraInitializationFailed
+                        ? Colors.red[600]
+                        : (_cameras != null
+                            ? Colors.green[600]
+                            : Colors.blue[600]),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _cameraInitializationFailed
+                          ? 'カメラ利用不可（ギャラリーのみ）'
+                          : (_cameras != null ? 'カメラ利用可能' : 'カメラ確認中...'),
+                      style: TextStyle(
+                        color: _cameraInitializationFailed
+                            ? Colors.red[700]
+                            : (_cameras != null
+                                ? Colors.green[700]
+                                : Colors.blue[700]),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.blue[50],
                 borderRadius:
-                    BorderRadius.circular(AppConstants.cardBorderRadius),
+                    BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
                 border: Border.all(color: Colors.blue[200]!),
               ),
               child: Column(
@@ -491,7 +786,6 @@ class _CameraScreenState extends State<CameraScreen>
 
             const Spacer(),
 
-            // 認証状態表示
             if (FirebaseAuth.instance.currentUser == null)
               Container(
                 padding: const EdgeInsets.all(12),
@@ -533,60 +827,56 @@ class _CameraScreenState extends State<CameraScreen>
         ),
       ),
       body: Padding(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
+        padding: const EdgeInsets.all(AppConstants.PADDING_MEDIUM),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 32),
-
             const Text(
               '写真の選択方法を選んでください',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
-
             const SizedBox(height: 32),
 
-            // カメラ撮影ボタン
-            Card(
-              child: InkWell(
-                onTap: () {
-                  setState(() {
-                    _currentState = CameraAnalysisState.capturing;
-                  });
-                },
-                borderRadius:
-                    BorderRadius.circular(AppConstants.cardBorderRadius),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      Icon(Icons.camera_alt, size: 48, color: Colors.blue[600]),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'カメラで撮影',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '物件写真や間取り図を直接撮影',
-                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                      ),
-                    ],
+            // カメラ撮影ボタン（カメラ利用可能時のみ）
+            if (!_cameraInitializationFailed) ...[
+              Card(
+                child: InkWell(
+                  onTap: _showCapturingState, // 遅延初期化対応
+                  borderRadius:
+                      BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        Icon(Icons.camera_alt,
+                            size: 48, color: Colors.blue[600]),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'カメラで撮影',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '物件写真や間取り図を直接撮影',
+                          style:
+                              TextStyle(fontSize: 14, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+            ],
 
-            const SizedBox(height: 16),
-
-            // ギャラリー選択ボタン
             Card(
               child: InkWell(
                 onTap: _pickImageFromGallery,
                 borderRadius:
-                    BorderRadius.circular(AppConstants.cardBorderRadius),
+                    BorderRadius.circular(AppConstants.CARD_BORDER_RADIUS),
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -609,6 +899,35 @@ class _CameraScreenState extends State<CameraScreen>
                 ),
               ),
             ),
+
+            // カメラ利用不可時の説明
+            if (_cameraInitializationFailed) ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: Colors.orange[600], size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'カメラが利用できません。ギャラリーから画像を選択してください。',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.orange[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -630,18 +949,13 @@ class _CameraScreenState extends State<CameraScreen>
       ),
       body: Stack(
         children: [
-          // カメラプレビュー
           _buildCameraPreview(),
-
-          // 撮影ボタン
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: _buildCaptureControls(),
           ),
-
-          // 撮影ガイド
           Positioned(
             left: 0,
             right: 0,
@@ -749,7 +1063,6 @@ class _CameraScreenState extends State<CameraScreen>
           onPressed: _resetAnalysis,
         ),
         actions: [
-          // 保存ボタン（ログイン時のみ）
           if (FirebaseAuth.instance.currentUser != null && !_isSaved)
             IconButton(
               onPressed: _isSaving ? null : _saveAnalysisHistory,
@@ -764,11 +1077,10 @@ class _CameraScreenState extends State<CameraScreen>
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
+        padding: const EdgeInsets.all(AppConstants.PADDING_MEDIUM),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 分析情報
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -796,10 +1108,7 @@ class _CameraScreenState extends State<CameraScreen>
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // 選択した画像
             if (_selectedImage != null)
               Card(
                 child: Padding(
@@ -826,10 +1135,7 @@ class _CameraScreenState extends State<CameraScreen>
                   ),
                 ),
               ),
-
             const SizedBox(height: 16),
-
-            // 分析結果
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -856,10 +1162,7 @@ class _CameraScreenState extends State<CameraScreen>
                 ),
               ),
             ),
-
             const SizedBox(height: 24),
-
-            // アクションボタン
             ElevatedButton.icon(
               onPressed: _resetAnalysis,
               icon: const Icon(Icons.refresh),
@@ -880,8 +1183,18 @@ class _CameraScreenState extends State<CameraScreen>
     if (_cameraController == null || !_isCameraInitialized) {
       return Container(
         color: Colors.black,
-        child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 16),
+              Text(
+                _cameraInitializationFailed ? 'カメラ初期化に失敗しました' : 'カメラを準備中...',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -899,28 +1212,23 @@ class _CameraScreenState extends State<CameraScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          // ギャラリー
           FloatingActionButton.small(
             heroTag: 'gallery',
             backgroundColor: Colors.white,
             onPressed: _pickImageFromGallery,
             child: const Icon(Icons.photo_library, color: Colors.black87),
           ),
-
-          // 撮影
           FloatingActionButton.large(
             heroTag: 'capture',
             backgroundColor: Colors.white,
-            onPressed: _takePicture,
+            onPressed: _isCameraInitialized ? _takePicture : null,
             child:
                 const Icon(Icons.camera_alt, color: Colors.black87, size: 32),
           ),
-
-          // カメラ切り替え
           FloatingActionButton.small(
             heroTag: 'switch',
             backgroundColor: Colors.white,
-            onPressed: _switchCamera,
+            onPressed: _isCameraInitialized ? _switchCamera : null,
             child: const Icon(Icons.flip_camera_ios, color: Colors.black87),
           ),
         ],

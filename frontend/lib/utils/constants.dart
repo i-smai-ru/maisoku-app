@@ -8,7 +8,7 @@ class AppConstants {
   static const String APP_NAME = 'Maisoku AI';
   static const String APP_VERSION = '1.0.0';
   static const String APP_BUILD_NUMBER = '1';
-  static const String APP_DESCRIPTION = 'あなたの住まい選びを科学的にサポート';
+  static const String APP_DESCRIPTION = 'あなたの住まい選びをサポート';
   static const String DATA_FORMAT_VERSION = '1.0';
   static const String API_VERSION = 'v1';
   static const String SCHEMA_VERSION = '1.0.0';
@@ -23,12 +23,16 @@ class AppConstants {
   static const String ENDPOINT_CAMERA_ANALYSIS = '/api/camera-analysis';
   static const String ENDPOINT_AREA_ANALYSIS = '/api/area-analysis';
   static const String ENDPOINT_ANALYSIS_HISTORY = '/api/analysis-history';
+  static const String ENDPOINT_ADDRESS_SUGGESTIONS = '/api/address-suggestions';
+  static const String ENDPOINT_GEOCODING = '/api/geocoding';
   static const String ENDPOINT_HEALTH_CHECK = '/health';
 
   // API タイムアウト設定（Cloud Run最適化）
   static const int CLOUD_RUN_TIMEOUT_SECONDS = 60;
   static const int CAMERA_ANALYSIS_TIMEOUT_SECONDS = 90;
   static const int AREA_ANALYSIS_TIMEOUT_SECONDS = 45;
+  static const int ADDRESS_SUGGESTIONS_TIMEOUT_SECONDS = 10;
+  static const int GEOCODING_TIMEOUT_SECONDS = 15;
   static const int HEALTH_CHECK_TIMEOUT_SECONDS = 10;
 
   // リトライ設定
@@ -58,6 +62,18 @@ class AppConstants {
     'address_input',
   ];
 
+  // === 住所バリデーション設定 ===
+
+  // 住所入力制限
+  static const int MIN_ADDRESS_LENGTH = 2;
+  static const int MAX_ADDRESS_LENGTH = 100;
+  static const int MAX_ADDRESS_SUGGESTIONS = 5;
+
+  // 住所信頼度設定
+  static const double MIN_ADDRESS_CONFIDENCE = 0.5;
+  static const double HIGH_ADDRESS_CONFIDENCE = 0.8;
+  static const double EXCELLENT_ADDRESS_CONFIDENCE = 0.9;
+
   // === エリア分析設定 ===
 
   // 分析範囲（メートル）
@@ -76,12 +92,6 @@ class AppConstants {
   // 施設検索設定
   static const int MAX_FACILITY_RESULTS = 20;
   static const int TOP_FACILITY_DISPLAY_COUNT = 5;
-  static const int MAX_ADDRESS_SUGGESTIONS = 5;
-
-  // 住所正規化
-  static const double MIN_ADDRESS_CONFIDENCE = 0.5;
-  static const double HIGH_ADDRESS_CONFIDENCE = 0.8;
-  static const double EXCELLENT_ADDRESS_CONFIDENCE = 0.9;
 
   // === AI分析設定 ===
 
@@ -102,6 +112,31 @@ class AppConstants {
   static const int MAX_IMAGE_WIDTH = 2048;
   static const int MAX_IMAGE_HEIGHT = 2048;
   static const List<String> SUPPORTED_IMAGE_FORMATS = ['jpg', 'jpeg', 'png'];
+
+  // === ユーザー好み設定 ===
+
+  // ライフスタイルタイプ
+  static const Map<String, String> LIFESTYLE_TYPES = {
+    '': '選択してください',
+    'single': '一人暮らし',
+    'couple': '夫婦・カップル',
+    'family_small': '小さなお子様がいる家族',
+    'family_school': '学校に通うお子様がいる家族',
+    'senior': 'シニア世代',
+    'student': '学生',
+    'remote_worker': 'リモートワーカー',
+    'commuter': '通勤者',
+  };
+
+  // 予算優先度
+  static const Map<String, String> BUDGET_PRIORITIES = {
+    '': '選択してください',
+    'cost_first': 'とにかく安く',
+    'value_balance': 'コストパフォーマンス重視',
+    'quality_first': '品質重視',
+    'premium': 'プレミアム志向',
+    'no_limit': '予算制限なし',
+  };
 
   // === UI/UX設定（Material Design 3準拠） ===
 
@@ -373,6 +408,11 @@ class AppConstants {
       errors.add('カメラ分析文字数設定が無効');
     }
 
+    // 住所バリデーション設定検証
+    if (MIN_ADDRESS_LENGTH >= MAX_ADDRESS_LENGTH) {
+      errors.add('住所長さ設定が無効');
+    }
+
     // 閾値検証
     if (MIN_ADDRESS_CONFIDENCE >= HIGH_ADDRESS_CONFIDENCE) {
       errors.add('住所信頼度閾値設定が無効');
@@ -416,6 +456,8 @@ class AppConstants {
       'max_image_size_mb': MAX_IMAGE_SIZE_MB,
       'area_analysis_steps': AREA_ANALYSIS_PROGRESS_STEPS,
       'camera_analysis_steps': CAMERA_ANALYSIS_PROGRESS_STEPS,
+      'min_address_length': MIN_ADDRESS_LENGTH,
+      'max_address_length': MAX_ADDRESS_LENGTH,
       'configuration_valid': validateAppConfiguration().isEmpty,
     };
   }
