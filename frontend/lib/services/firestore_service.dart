@@ -3,13 +3,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import '../models/user_model.dart';
-import '../models/analysis_history_entry.dart';
 import '../models/user_preference_model.dart';
 
 /// Maisoku AI v1.0: Firestore操作サービス
 ///
-/// 機能分離対応：
-/// - カメラ分析：履歴保存・個人化分析
+/// 機能：
+/// - カメラ分析：揮発的表示（履歴保存なし）
 /// - エリア分析：揮発的表示（履歴保存なし）
 /// - ユーザー管理：認証・好み設定・音声設定
 class FirestoreService {
@@ -117,207 +116,6 @@ class FirestoreService {
     } catch (e) {
       print('❌ 音声設定更新エラー: $e');
       rethrow;
-    }
-  }
-
-  // === カメラ分析履歴機能 ===
-
-  /// カメラ分析履歴を保存
-  Future<String> saveAnalysisHistory(AnalysisHistoryEntry entry) async {
-    if (entry.userId.isEmpty) {
-      throw ArgumentError('ユーザーIDが空です');
-    }
-
-    try {
-      final data = entry.toJson();
-      data['analysisVersion'] = '1.0';
-      data['analysisType'] = 'camera_analysis';
-      data['createdAt'] = FieldValue.serverTimestamp();
-
-      final docRef = await _db
-          .collection('users')
-          .doc(entry.userId)
-          .collection('analysisHistory')
-          .add(data);
-
-      print('✅ カメラ分析履歴を保存: ${entry.userId} → ${docRef.id}');
-      return docRef.id;
-    } catch (e) {
-      print('❌ 分析履歴保存エラー: $e');
-      rethrow;
-    }
-  }
-
-  /// カメラ分析履歴を取得
-  Future<List<AnalysisHistoryEntry>> getAnalysisHistory(
-    String userId, {
-    int limit = 50,
-  }) async {
-    if (userId.isEmpty) return [];
-
-    try {
-      final querySnapshot = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .orderBy('timestamp', descending: true)
-          .limit(limit)
-          .get();
-
-      final historyEntries = <AnalysisHistoryEntry>[];
-
-      for (final doc in querySnapshot.docs) {
-        try {
-          final data = doc.data();
-          final entry = AnalysisHistoryEntry.fromJson(data, doc.id);
-          if (entry.isValid) {
-            historyEntries.add(entry);
-          }
-        } catch (e) {
-          print('⚠️ 履歴エントリ変換エラー: ${doc.id} - $e');
-        }
-      }
-
-      print('✅ カメラ分析履歴を取得: ${historyEntries.length}件');
-      return historyEntries;
-    } catch (e) {
-      print('❌ 分析履歴取得エラー: $e');
-      return [];
-    }
-  }
-
-  /// 特定の分析履歴を取得
-  Future<AnalysisHistoryEntry?> getAnalysisHistoryById(
-    String userId,
-    String historyId,
-  ) async {
-    if (userId.isEmpty || historyId.isEmpty) return null;
-
-    try {
-      final doc = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .doc(historyId)
-          .get();
-
-      if (doc.exists && doc.data() != null) {
-        return AnalysisHistoryEntry.fromJson(doc.data()!, doc.id);
-      }
-      return null;
-    } catch (e) {
-      print('❌ 分析履歴取得エラー: $e');
-      return null;
-    }
-  }
-
-  /// 分析履歴を更新（再分析用）
-  Future<void> updateAnalysisHistory(
-    String userId,
-    String historyId,
-    String newAnalysisTextSummary,
-    String newAnalysisTextFull, {
-    bool? isPersonalized,
-    String? preferenceSnapshot,
-    double? processingTimeSeconds,
-  }) async {
-    if (userId.isEmpty || historyId.isEmpty) {
-      throw ArgumentError('ユーザーIDまたは履歴IDが空です');
-    }
-
-    try {
-      final updateData = <String, dynamic>{
-        'analysisTextSummary': newAnalysisTextSummary,
-        'analysisTextFull': newAnalysisTextFull,
-        'timestamp': FieldValue.serverTimestamp(),
-        'analysisVersion': '1.0',
-      };
-
-      if (isPersonalized != null) {
-        updateData['isPersonalized'] = isPersonalized;
-      }
-      if (preferenceSnapshot != null) {
-        updateData['preferenceSnapshot'] = preferenceSnapshot;
-      }
-      if (processingTimeSeconds != null) {
-        updateData['processingTimeSeconds'] = processingTimeSeconds;
-      }
-
-      await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .doc(historyId)
-          .update(updateData);
-
-      print('✅ 分析履歴を更新: $historyId');
-    } catch (e) {
-      print('❌ 分析履歴更新エラー: $e');
-      rethrow;
-    }
-  }
-
-  /// 分析履歴を削除
-  Future<void> deleteAnalysisHistory(String userId, String historyId) async {
-    if (userId.isEmpty || historyId.isEmpty) {
-      throw ArgumentError('ユーザーIDまたは履歴IDが空です');
-    }
-
-    try {
-      await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .doc(historyId)
-          .delete();
-
-      print('✅ 分析履歴を削除: $historyId');
-    } catch (e) {
-      print('❌ 分析履歴削除エラー: $e');
-      rethrow;
-    }
-  }
-
-  /// 分析履歴の件数を取得
-  Future<int> getAnalysisHistoryCount(String userId) async {
-    if (userId.isEmpty) return 0;
-
-    try {
-      final snapshot = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .count()
-          .get();
-
-      return snapshot.count ?? 0;
-    } catch (e) {
-      print('❌ 分析履歴件数取得エラー: $e');
-      return 0;
-    }
-  }
-
-  /// 最新の分析履歴を取得（ホーム画面用）
-  Future<AnalysisHistoryEntry?> getLatestAnalysisHistory(String userId) async {
-    if (userId.isEmpty) return null;
-
-    try {
-      final querySnapshot = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .orderBy('timestamp', descending: true)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        final doc = querySnapshot.docs.first;
-        return AnalysisHistoryEntry.fromJson(doc.data(), doc.id);
-      }
-      return null;
-    } catch (e) {
-      print('❌ 最新分析履歴取得エラー: $e');
-      return null;
     }
   }
 
@@ -467,17 +265,6 @@ class FirestoreService {
     final batch = _db.batch();
 
     try {
-      // 分析履歴を削除
-      final historySnapshot = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('analysisHistory')
-          .get();
-
-      for (final doc in historySnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-
       // 好み設定を削除
       final preferencesRef = _db
           .collection('users')
@@ -525,7 +312,6 @@ class FirestoreService {
   Available: ${_db.app.isAutomaticDataCollectionEnabled}
   Collections:
     - users/{userId}
-    - users/{userId}/analysisHistory/{id}
     - users/{userId}/preferences/current
 ''');
   }

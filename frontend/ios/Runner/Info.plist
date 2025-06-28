@@ -78,5 +78,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>この位置情報は現在地の住所を取得し、エリア分析に利用します</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>この位置情報は現在地の住所を取得し、エリア分析に利用します</string>
 </dict>
 </plist>

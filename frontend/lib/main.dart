@@ -11,17 +11,11 @@ import 'services/auth_check_service.dart';
 import 'screens/camera_screen.dart';
 import 'screens/area_screen.dart';
 import 'screens/my_page_screen.dart';
-import 'screens/history_screen.dart';
-import 'models/analysis_history_entry.dart';
+import 'screens/login_screen.dart';
 
 /// Maisoku AI v1.0 - メインアプリケーション
-///
-/// 機能分離対応：
-/// - カメラ分析: 履歴保存あり（認証必須）
-/// - エリア分析: 揮発的表示（段階的認証）
-/// - 動的タブ構成: 認証状態による5タブ/4タブ切り替え
 void main() async {
-  print('🚀 === Maisoku AI v1.0 起動 ===');
+  print('🚀 === Maisoku AI v1.0 ===');
 
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -107,7 +101,7 @@ class MaisokuApp extends StatelessWidget {
   }
 }
 
-/// 認証チェック機能付きラッパー
+/// 認証チェック機能付きラッパー（段階的認証対応）
 class AuthCheckWrapper extends StatefulWidget {
   @override
   State<AuthCheckWrapper> createState() => _AuthCheckWrapperState();
@@ -123,7 +117,7 @@ class _AuthCheckWrapperState extends State<AuthCheckWrapper> {
     _performStartupCheck();
   }
 
-  /// 起動時認証チェック
+  /// 起動時認証チェック（段階的認証対応）
   Future<void> _performStartupCheck() async {
     try {
       setState(() {
@@ -137,31 +131,38 @@ class _AuthCheckWrapperState extends State<AuthCheckWrapper> {
         _statusMessage = 'ユーザー認証状態をチェック中...';
       });
 
-      // 認証状態検証
+      // 🔄 段階的認証システムでの認証状態検証
       final isValid = await AuthCheckService.validateUserOnStartup();
       print('🔐 起動時認証チェック結果: ${isValid ? "有効" : "無効"}');
 
+      setState(() {
+        _statusMessage = isValid ? '認証済み - 全機能利用可能' : '基本機能利用可能';
+      });
+
       if (!isValid) {
         setState(() {
-          _statusMessage = '認証情報をクリアしました';
+          _statusMessage = '基本機能で開始（ログインで全機能利用可能）';
         });
         await Future.delayed(const Duration(milliseconds: 800));
       } else {
         setState(() {
-          _statusMessage = 'ユーザー状態確認完了';
+          _statusMessage = '全機能利用可能';
         });
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
+      // 🎯 段階的認証状態のデバッグ出力
+      AuthCheckService.debugUserState();
+
       setState(() {
         _isChecking = false;
       });
-      print('✅ 起動時チェック完了');
+      print('✅ 起動時チェック完了（段階的認証対応）');
     } catch (e) {
       print('❌ 起動時チェックエラー: $e');
 
       setState(() {
-        _statusMessage = 'エラーが発生しました。認証情報をリセットします...';
+        _statusMessage = 'エラーが発生しました。基本機能で開始します...';
       });
 
       await AuthCheckService.manualReset();
@@ -216,6 +217,23 @@ class _AuthCheckWrapperState extends State<AuthCheckWrapper> {
                     color: Colors.white,
                   ),
                 ),
+                const SizedBox(height: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    '🔧 v1.0',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -227,7 +245,7 @@ class _AuthCheckWrapperState extends State<AuthCheckWrapper> {
   }
 }
 
-/// メインタブ画面 - 動的タブ構成対応
+/// メインタブ画面
 class MainTabScreen extends StatefulWidget {
   @override
   State<MainTabScreen> createState() => _MainTabScreenState();
@@ -235,15 +253,18 @@ class MainTabScreen extends StatefulWidget {
 
 class _MainTabScreenState extends State<MainTabScreen>
     with WidgetsBindingObserver {
-  // 認証・サービス
+  // === 🔐 認証・サービス ===
   User? _currentUser;
   late FirestoreService _firestoreService;
   late AudioService _audioService;
 
-  // 画面管理
+  // === 📱 画面管理 ===
   List<Widget> _screens = [];
   int _currentIndex = 0;
-  int? _historyReturnIndex; // 履歴から戻る時のタブ記憶
+
+  // === 🎯 段階的認証状態管理 ===
+  Map<String, bool> _featureAvailability = {};
+  bool _isInitialized = false;
 
   @override
   void initState() {
@@ -256,8 +277,8 @@ class _MainTabScreenState extends State<MainTabScreen>
     _firestoreService = FirestoreService();
     _audioService = AudioService();
 
-    // 認証状態監視開始
-    _setupAuthListener();
+    // 🔄 段階的認証状態監視開始
+    _setupGradualAuthListener();
     _setupAudioService();
   }
 
@@ -269,90 +290,187 @@ class _MainTabScreenState extends State<MainTabScreen>
     super.dispose();
   }
 
-  /// 認証状態監視設定
-  void _setupAuthListener() {
+  // === 🔄 段階的認証状態監視 ===
+
+  /// 段階的認証状態監視設定
+  void _setupGradualAuthListener() {
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
       if (mounted) {
-        print('🔐 認証状態変更: ${user?.uid ?? "ログアウト"}');
+        print('🔐 MainTab: 認証状態変更 ${user?.uid ?? "ログアウト"}');
+
+        final wasLoggedIn = _currentUser != null;
+        final isNowLoggedIn = user != null;
 
         setState(() {
-          final wasLoggedIn = _currentUser != null;
-          final isNowLoggedIn = user != null;
           _currentUser = user;
-
-          // 画面を再構築
-          _initializeScreens();
-
-          // タブ位置調整
-          if (wasLoggedIn && !isNowLoggedIn) {
-            // ログアウト時：履歴タブ以降にいた場合はホームに戻る
-            print('📤 ログアウト検出: タブを調整します');
-            if (_currentIndex >= 3) {
-              _currentIndex = 0; // ホームに戻る
-            }
-          } else if (!wasLoggedIn && isNowLoggedIn) {
-            // ログイン時：ログイン画面にいた場合はマイページに移動
-            print('📥 ログイン検出: タブを調整します');
-            if (_currentIndex == 3) {
-              _currentIndex = 4; // マイページに移動
-            }
-          }
-
-          // インデックスの安全性チェック
-          if (_currentIndex >= _screens.length) {
-            _currentIndex = 0;
-          }
         });
+
+        // 🎯 機能利用可能状況の更新
+        _updateFeatureAvailability();
+
+        // 🏗️ 画面を再構築
+        _initializeScreens();
+
+        // 📱 タブ位置調整（段階的認証対応）
+        _adjustTabPosition(wasLoggedIn, isNowLoggedIn);
+
+        print('✅ MainTab: 段階的認証状態更新完了');
       }
     });
   }
 
-  /// 画面初期化（実装済み画面を使用）
+  /// 機能利用可能状況の更新
+  void _updateFeatureAvailability() {
+    setState(() {
+      _featureAvailability = AuthCheckService.getFeatureAvailability();
+    });
+
+    print('📊 機能利用可能状況:');
+    _featureAvailability.forEach((feature, available) {
+      print('   ${available ? "✅" : "❌"} $feature');
+    });
+  }
+
+  /// タブ位置調整（段階的認証対応）
+  void _adjustTabPosition(bool wasLoggedIn, bool isNowLoggedIn) {
+    if (wasLoggedIn && !isNowLoggedIn) {
+      // ログアウト時：認証必須画面にいた場合は適切な画面に移動
+      print('📤 ログアウト検出: タブ位置を調整');
+
+      if (_currentIndex >= 3) {
+        // マイページにいた場合
+        if (_currentIndex == 3) {
+          // マイページ
+          _currentIndex = 3; // ログイン画面に移動
+          _showLogoutNotification('ログアウトしました');
+        }
+      }
+    } else if (!wasLoggedIn && isNowLoggedIn) {
+      // ログイン時：ログイン画面にいた場合はマイページに移動
+      print('📥 ログイン検出: タブ位置を調整');
+
+      if (_currentIndex == 3) {
+        // ログイン画面にいた場合
+        _currentIndex = 3; // マイページに移動（4タブ構成なのでindex 3）
+        _showLoginNotification('ログインしました！全機能が利用できます');
+      }
+    }
+
+    // インデックスの安全性チェック
+    if (_currentIndex >= _screens.length) {
+      _currentIndex = 0;
+    }
+  }
+
+  /// ログアウト通知表示
+  void _showLogoutNotification(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.orange[600],
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// ログイン通知表示
+  void _showLoginNotification(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green[600],
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  // === 🏗️ 画面初期化 ===
+
+  /// 画面初期化
   void _initializeScreens() {
     print('🏗️ MainTabScreen: 画面初期化開始');
     List<Widget> newScreens = [];
 
-    // 1. ホーム画面（常に存在）
-    newScreens.add(_buildHomeScreen());
+    // 1. ホーム画面（常に存在・段階的認証状態表示）
+    newScreens.add(_buildGradualAuthHomeScreen());
 
-    // 2. カメラ分析画面（常に存在） - 修正版CameraScreenを使用
-    newScreens.add(const CameraScreen());
+    // 2. カメラ分析画面（常に存在・認証必須制御内蔵）
+    newScreens.add(CameraScreen(
+      onNavigateToLogin: () {
+        print('📱 カメラ画面からログインタブへの遷移要求');
+        // ログインタブに移動
+        if (_currentUser == null) {
+          // 未ログイン時：ログインタブ（index 3）に移動
+          _changeTab(3);
+        } else {
+          // ログイン済み時：マイページタブ（index 3）に移動
+          _changeTab(3);
+        }
+      },
+    ));
 
-    // 3. エリア分析画面（常に存在） - 実装済み画面を使用
-    newScreens.add(const AreaScreen());
+    // 3. エリア分析画面（常に存在・段階的認証対応・コールバック追加）
+    newScreens.add(AreaScreen(
+      onNavigateToLogin: () {
+        print('📱 エリア分析画面からログインタブへの遷移要求');
+        if (_currentUser == null) {
+          _changeTab(3); // ログインタブに移動
+        } else {
+          print('⚠️ 既にログイン済みです');
+        }
+      },
+      onNavigateToMyPage: () {
+        print('📱 エリア分析画面からマイページタブへの遷移要求');
+        if (_currentUser != null) {
+          _changeTab(3); // マイページタブに移動
+        } else {
+          print('⚠️ ログインが必要です');
+          _changeTab(3); // ログインタブに移動
+        }
+      },
+    ));
 
+    // 4. ログイン画面 または マイページ画面
     if (_currentUser != null) {
-      // ログイン時：5タブ構成
-      print('👤 ログイン状態: 5タブ構成で初期化');
+      // ログイン時：マイページ画面
+      print('👤 ログイン状態: 4タブ構成（マイページ）で初期化');
 
-      // 4. 履歴画面（カメラ分析履歴のみ） - 実装済み画面を使用
-      newScreens.add(HistoryScreen(
-        firestoreService: _firestoreService,
-        currentUser: _currentUser!,
-        onReanalyze: _navigateToReanalyze,
-        audioService: _audioService,
-      ));
-
-      // 5. マイページ画面 - 実装済み画面を使用
       newScreens.add(MyPageScreen(
         firestoreService: _firestoreService,
         currentUser: _currentUser,
         audioService: _audioService,
       ));
     } else {
-      // 未ログイン時：4タブ構成
-      print('🔒 未ログイン状態: 4タブ構成で初期化');
+      // 未ログイン時：ログイン画面
+      print('🔒 未ログイン状態: 4タブ構成（ログイン）で初期化');
 
-      // 4. ログイン画面
-      newScreens.add(_buildLoginScreen());
+      newScreens.add(LoginScreen(
+        onLoginSuccess: () {
+          print('🎉 ログイン成功: マイページタブに移動');
+          // ログイン成功時にマイページタブに移動
+          // 画面の再構築により自動的にタブ構成が変更される
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted && _currentUser != null) {
+              _changeTab(3); // マイページに移動
+            }
+          });
+        },
+      ));
     }
 
-    _screens = newScreens;
+    setState(() {
+      _screens = newScreens;
+      _isInitialized = true;
+    });
     print('✅ 画面初期化完了: ${_screens.length}画面');
   }
 
-  /// ホーム画面を構築（実装版）
-  Widget _buildHomeScreen() {
+  /// 段階的認証対応ホーム画面を構築
+  Widget _buildGradualAuthHomeScreen() {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Maisoku AI'),
@@ -404,11 +522,11 @@ class _MainTabScreenState extends State<MainTabScreen>
                     ),
                   ],
                 ),
-                child: const Column(
+                child: Column(
                   children: [
-                    Icon(Icons.home, color: Colors.white, size: 48),
-                    SizedBox(height: 16),
-                    Text(
+                    const Icon(Icons.home, color: Colors.white, size: 48),
+                    const SizedBox(height: 16),
+                    const Text(
                       'Maisoku AI',
                       style: TextStyle(
                         fontSize: 28,
@@ -416,8 +534,8 @@ class _MainTabScreenState extends State<MainTabScreen>
                         color: Colors.white,
                       ),
                     ),
-                    SizedBox(height: 8),
-                    Text(
+                    const SizedBox(height: 8),
+                    const Text(
                       'あなたの住まい選びをサポート',
                       style: TextStyle(
                         fontSize: 16,
@@ -425,13 +543,35 @@ class _MainTabScreenState extends State<MainTabScreen>
                       ),
                       textAlign: TextAlign.center,
                     ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        '🔧 v1.0',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
 
               const SizedBox(height: 32),
 
-              // 機能カード
+              // 🔄 段階的認証状態表示
+              _buildGradualAuthStatusCard(),
+
+              const SizedBox(height: 24),
+
+              // 機能カード（段階的認証対応）
               Row(
                 children: [
                   Expanded(
@@ -440,7 +580,8 @@ class _MainTabScreenState extends State<MainTabScreen>
                       description: '物件写真をAI分析',
                       icon: Icons.camera_alt,
                       color: Colors.blue,
-                      onTap: () => _changeTab(1),
+                      isAvailable: _featureAvailability['camera'] ?? false,
+                      onTap: () => _handleFeatureAccess('camera', 1),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -450,6 +591,7 @@ class _MainTabScreenState extends State<MainTabScreen>
                       description: '周辺環境を総合評価',
                       icon: Icons.location_on,
                       color: Colors.green,
+                      isAvailable: true, // 常に利用可能（段階的）
                       onTap: () => _changeTab(2),
                     ),
                   ),
@@ -458,99 +600,62 @@ class _MainTabScreenState extends State<MainTabScreen>
 
               const SizedBox(height: 16),
 
-              // ログイン状態に応じた追加機能
+              // 認証状態に応じた追加機能
               if (_currentUser != null) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildFeatureCard(
-                        title: '分析履歴',
-                        description: '過去の分析結果',
-                        icon: Icons.history,
-                        color: Colors.purple,
-                        onTap: () => _changeTab(3),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildFeatureCard(
-                        title: 'マイページ',
-                        description: '設定・アカウント管理',
-                        icon: Icons.person,
-                        color: Colors.orange,
-                        onTap: () => _changeTab(4),
-                      ),
-                    ),
-                  ],
+                _buildFeatureCard(
+                  title: 'マイページ',
+                  description: '設定・アカウント管理',
+                  icon: Icons.person,
+                  color: Colors.orange,
+                  isAvailable: _featureAvailability['mypage'] ?? false,
+                  onTap: () => _changeTab(3),
                 ),
               ] else ...[
                 _buildFeatureCard(
                   title: 'ログイン・会員登録',
-                  description: '履歴保存・個人化分析',
+                  description: '個人化分析機能を利用',
                   icon: Icons.login,
                   color: Colors.orange,
+                  isAvailable: true,
                   onTap: () => _changeTab(3),
                 ),
               ],
 
               const SizedBox(height: 32),
 
-              // ユーザー状態表示
+              // バージョン情報・技術スタック
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: _currentUser != null
-                      ? Colors.green[50]
-                      : Colors.orange[50],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _currentUser != null
-                        ? Colors.green[200]!
-                        : Colors.orange[200]!,
-                  ),
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    Icon(
-                      _currentUser != null
-                          ? Icons.verified_user
-                          : Icons.info_outline,
-                      color: _currentUser != null
-                          ? Colors.green[600]
-                          : Colors.orange[600],
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _currentUser != null ? 'ログイン済み' : '未ログイン',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: _currentUser != null
-                                  ? Colors.green[800]
-                                  : Colors.orange[800],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _currentUser != null
-                                ? '個人化分析・履歴保存が利用できます'
-                                : 'ログインすると分析履歴の保存や個人化分析が利用できます',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: _currentUser != null
-                                  ? Colors.green[700]
-                                  : Colors.orange[700],
-                            ),
-                          ),
-                        ],
+                    Text(
+                      'Maisoku AI v1.0',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[800],
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '🚀 Flutter + Firebase + Cloud Run + Vertex AI\n'
+                      '🤖 最新のGoogle AI技術で住まい選びをサポート\n'
+                      '🔄 段階的認証システムで誰でも利用可能',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green[700],
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               ),
+
+              const SizedBox(height: 32),
             ],
           ),
         ),
@@ -558,36 +663,143 @@ class _MainTabScreenState extends State<MainTabScreen>
     );
   }
 
-  /// 機能カードウィジェット
+  /// 🔄 段階的認証状態表示カード
+  Widget _buildGradualAuthStatusCard() {
+    if (_currentUser != null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.green[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green[200]!),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.verified_user, color: Colors.green[600], size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'ログイン済み：${_currentUser!.email}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[800],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '✅ 全ての機能を利用できます\n'
+              '📸 カメラ分析：個人化分析\n'
+              '🗺️ エリア分析：基本分析 + 個人化分析\n'
+              '⚙️ マイページ：アカウント管理',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.green[700],
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.orange[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange[200]!),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.orange[600], size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '未ログイン状態',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange[800],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '🔓 基本機能は今すぐ利用できます\n'
+              '❌ カメラ分析：ログインが必要\n'
+              '✅ エリア分析：基本分析のみ利用可能\n'
+              '💡 ログインすると個人化機能が利用できます',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.orange[700],
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _changeTab(3),
+                icon: const Icon(Icons.login),
+                label: const Text('ログインして全機能を利用'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange[600],
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  /// 機能カードウィジェット（段階的認証対応）
   Widget _buildFeatureCard({
     required String title,
     required String description,
     required IconData icon,
     required MaterialColor color,
+    required bool isAvailable,
     required VoidCallback onTap,
   }) {
     return Card(
-      elevation: 4,
+      elevation: isAvailable ? 4 : 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
+        onTap: isAvailable ? onTap : null,
+        child: Container(
           padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isAvailable ? null : Colors.grey[100],
+          ),
           child: Column(
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: color[50],
+                  color: isAvailable ? color[50] : Colors.grey[200],
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   icon,
                   size: 32,
-                  color: color[600],
+                  color: isAvailable ? color[600] : Colors.grey[500],
                 ),
               ),
               const SizedBox(height: 12),
@@ -596,7 +808,7 @@ class _MainTabScreenState extends State<MainTabScreen>
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: color[800],
+                  color: isAvailable ? color[800] : Colors.grey[600],
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -605,130 +817,30 @@ class _MainTabScreenState extends State<MainTabScreen>
                 description,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey[600],
+                  color: isAvailable ? Colors.grey[600] : Colors.grey[500],
                 ),
                 textAlign: TextAlign.center,
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// ログイン画面を構築
-  Widget _buildLoginScreen() {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ログイン・会員登録'),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Colors.orange[400]!, Colors.orange[600]!],
-            ),
-          ),
-        ),
-        foregroundColor: Colors.white,
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.orange[50]!, Colors.white],
-          ),
-        ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+              if (!isAvailable) ...[
+                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(32),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.2),
-                        spreadRadius: 5,
-                        blurRadius: 7,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+                    color: Colors.orange[100],
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.login,
-                        size: 64,
-                        color: Colors.orange[600],
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'ログイン・会員登録',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'アカウントを作成すると以下の機能が利用できます：',
-                        style: TextStyle(fontSize: 16),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.save,
-                                  color: Colors.green[600], size: 20),
-                              const SizedBox(width: 8),
-                              const Text('分析履歴の保存'),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(Icons.person,
-                                  color: Colors.blue[600], size: 20),
-                              const SizedBox(width: 8),
-                              const Text('個人化された分析'),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(Icons.settings,
-                                  color: Colors.purple[600], size: 20),
-                              const SizedBox(width: 8),
-                              const Text('好み設定の管理'),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'ログイン機能は現在開発中です',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    'ログイン必要',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.orange[700],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -738,71 +850,120 @@ class _MainTabScreenState extends State<MainTabScreen>
   /// 音声サービスセットアップ
   void _setupAudioService() {
     print('🔊 AudioService: セットアップ開始');
-    // 音声サービスの初期化処理（必要に応じて）
+  }
+
+  // === 📱 タブ変更・機能アクセス制御 ===
+
+  /// 🔄 機能アクセス制御付きタブ変更
+  void _handleFeatureAccess(String featureName, int tabIndex) {
+    final isAvailable = _featureAvailability[featureName] ?? false;
+
+    if (isAvailable) {
+      _changeTab(tabIndex);
+    } else {
+      // 認証が必要な機能へのアクセス時
+      final message = AuthCheckService.getAuthRequiredMessage(featureName);
+      _showFeatureAccessDeniedDialog(featureName, message);
+    }
+  }
+
+  /// 機能アクセス拒否ダイアログ
+  void _showFeatureAccessDeniedDialog(String featureName, String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.lock, color: Colors.orange[600]),
+              const SizedBox(width: 8),
+              const Text('ログインが必要'),
+            ],
+          ),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _changeTab(3); // ログイン画面に移動
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[600],
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('ログイン'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   /// タブ変更処理
   void _changeTab(int index) {
     print('📱 タブ変更: $_currentIndex -> $index');
 
-    // 画面が初期化されていない場合は何もしない
-    if (_screens.isEmpty) {
+    if (!_isInitialized || _screens.isEmpty) {
       print('⚠️ 画面未初期化のためタブ変更をスキップ');
       return;
     }
 
+    // インデックスの範囲チェック（4タブ構成）
+    if (index < 0 || index >= _screens.length) {
+      print('⚠️ 無効なタブインデックス: $index (有効範囲: 0-${_screens.length - 1})');
+      return;
+    }
+
     setState(() {
-      // 履歴画面から戻る場合のインデックス記憶
-      if (_currentIndex == 3 && _currentUser != null) {
-        // 現在履歴画面にいる場合は、次のタブを記憶
-        if (index != 3) {
-          _historyReturnIndex = index;
-          return;
-        }
-      }
-
-      // 履歴画面に戻る場合の処理
-      if (_historyReturnIndex != null && index != 3) {
-        if (_historyReturnIndex == index) {
-          _currentIndex = index;
-          _historyReturnIndex = null;
-          return;
-        }
-      }
-
       _currentIndex = index;
-      _historyReturnIndex = null; // リセット
 
       // カメラ分析タブの場合はリセット
       if (index == 1) {
         print('📷 CameraScreen: リセット');
-        _screens[1] = const CameraScreen();
+        _screens[1] = CameraScreen(
+          onNavigateToLogin: () {
+            print('📱 カメラ画面からログインタブへの遷移要求');
+            _changeTab(3); // ログイン/マイページタブに移動
+          },
+        );
       }
 
       // エリア分析タブは常にリセット（揮発的表示）
       if (index == 2) {
-        print('📍 AreaScreen: リセット');
-        _screens[2] = const AreaScreen();
+        print('📍 AreaScreen: リセット（コールバック付き）');
+        _screens[2] = AreaScreen(
+          onNavigateToLogin: () {
+            print('📱 エリア分析画面からログインタブへの遷移要求');
+            if (_currentUser == null) {
+              _changeTab(3); // ログインタブに移動
+            } else {
+              print('⚠️ 既にログイン済みです');
+            }
+          },
+          onNavigateToMyPage: () {
+            print('📱 エリア分析画面からマイページタブへの遷移要求');
+            if (_currentUser != null) {
+              _changeTab(3); // マイページタブに移動
+            } else {
+              print('⚠️ ログインが必要です');
+              _changeTab(3); // ログインタブに移動
+            }
+          },
+        );
       }
     });
-  }
 
-  /// 履歴から再分析への遷移（将来実装用）
-  void _navigateToReanalyze(AnalysisHistoryEntry entry) {
-    print('🔄 履歴から再分析: ${entry.id}');
-    setState(() {
-      // カメラ画面を再分析用に更新（将来的にinitialImageUrlを使用）
-      _screens[1] = const CameraScreen();
-
-      // カメラタブに移動
-      _currentIndex = 1;
-    });
+    print('✅ タブ変更完了: $index');
   }
 
   /// ボトムナビゲーションアイテム構築
   List<BottomNavigationBarItem> _buildBottomNavItems() {
     if (_currentUser != null) {
-      // ログイン時：5タブ構成
+      // ログイン時：4タブ構成（ホーム、カメラ、エリア、マイページ）
       return const [
         BottomNavigationBarItem(
           icon: Icon(Icons.home),
@@ -817,16 +978,12 @@ class _MainTabScreenState extends State<MainTabScreen>
           label: 'エリア',
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.history),
-          label: '履歴',
-        ),
-        BottomNavigationBarItem(
           icon: Icon(Icons.person),
           label: 'マイページ',
         ),
       ];
     } else {
-      // 未ログイン時：4タブ構成
+      // 未ログイン時：4タブ構成（ホーム、カメラ、エリア、ログイン）
       return const [
         BottomNavigationBarItem(
           icon: Icon(Icons.home),
@@ -851,10 +1008,10 @@ class _MainTabScreenState extends State<MainTabScreen>
   @override
   Widget build(BuildContext context) {
     print(
-        '🏗️ MainTabScreen: build実行 - currentIndex: $_currentIndex, screens: ${_screens.length}');
+        '🏗️ MainTabScreen: build実行 - currentIndex: $_currentIndex, screens: ${_screens.length}, auth: ${_currentUser?.uid ?? "null"}');
 
     // 画面が初期化されていない場合はローディング表示
-    if (_screens.isEmpty) {
+    if (!_isInitialized || _screens.isEmpty) {
       return Scaffold(
         body: Container(
           decoration: BoxDecoration(
@@ -880,7 +1037,7 @@ class _MainTabScreenState extends State<MainTabScreen>
                 ),
                 SizedBox(height: 8),
                 Text(
-                  '画面を準備中...',
+                  'タブ遷移システムを初期化中...',
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.white,
@@ -900,24 +1057,20 @@ class _MainTabScreenState extends State<MainTabScreen>
     }
 
     return Scaffold(
-      body: _screens.isNotEmpty
-          ? IndexedStack(
-              index: _currentIndex.clamp(0, _screens.length - 1),
-              children: _screens,
-            )
-          : const Center(child: CircularProgressIndicator()),
-      bottomNavigationBar: _screens.isNotEmpty
-          ? BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              currentIndex: _currentIndex.clamp(0, _screens.length - 1),
-              onTap: _changeTab,
-              items: _buildBottomNavItems(),
-              selectedItemColor: Colors.green[700],
-              unselectedItemColor: Colors.grey[600],
-              backgroundColor: Colors.white,
-              elevation: 8,
-            )
-          : null,
+      body: IndexedStack(
+        index: _currentIndex.clamp(0, _screens.length - 1),
+        children: _screens,
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: _currentIndex.clamp(0, _screens.length - 1),
+        onTap: _changeTab,
+        items: _buildBottomNavItems(),
+        selectedItemColor: Colors.green[700],
+        unselectedItemColor: Colors.grey[600],
+        backgroundColor: Colors.white,
+        elevation: 8,
+      ),
     );
   }
 }

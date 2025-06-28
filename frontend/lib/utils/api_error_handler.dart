@@ -3,7 +3,101 @@
 import 'dart:io';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
-/// Maisoku AI v1.0: 統一APIエラーハンドリング
+/// 詳細なAPI例外クラス
+class DetailedApiException implements Exception {
+  final String message;
+  final String errorType;
+  final int statusCode;
+  final Map<String, dynamic>? debugInfo;
+  final String? originalError;
+  final String? timestamp;
+  final String? requestId;
+
+  DetailedApiException({
+    required this.message,
+    required this.errorType,
+    required this.statusCode,
+    this.debugInfo,
+    this.originalError,
+    this.timestamp,
+    this.requestId,
+  });
+
+  factory DetailedApiException.fromJson(
+      Map<String, dynamic> json, int statusCode) {
+    return DetailedApiException(
+      message: (json['error'] ?? json['detail'] ?? 'Unknown error').toString(),
+      errorType: (json['error_type'] ?? 'UnknownError').toString(),
+      statusCode: statusCode,
+      debugInfo: json['debug_info'] as Map<String, dynamic>?,
+      originalError: json['original_error']?.toString(),
+      timestamp: json['timestamp']?.toString(),
+      requestId: json['request_id']?.toString(),
+    );
+  }
+
+  @override
+  String toString() {
+    final buffer = StringBuffer();
+    buffer.writeln('DetailedApiException:');
+    buffer.writeln('  Message: $message');
+    buffer.writeln('  Type: $errorType');
+    buffer.writeln('  Status Code: $statusCode');
+
+    if (timestamp != null) {
+      buffer.writeln('  Timestamp: $timestamp');
+    }
+
+    if (requestId != null) {
+      buffer.writeln('  Request ID: $requestId');
+    }
+
+    if (originalError != null) {
+      buffer.writeln('  Original Error: $originalError');
+    }
+
+    if (debugInfo != null) {
+      buffer.writeln('  Debug Info:');
+      debugInfo!.forEach((key, value) {
+        buffer.writeln('    $key: $value');
+      });
+    }
+
+    return buffer.toString();
+  }
+
+  /// ユーザーフレンドリーなエラーメッセージを生成
+  String get userFriendlyMessage {
+    switch (errorType) {
+      case 'ValidationError':
+        return '入力データに問題があります。内容を確認してください。';
+      case 'AuthenticationError':
+        return 'ログインが必要です。再度ログインしてください。';
+      case 'Base64DecodeError':
+        return '画像データの形式が正しくありません。別の画像を選択してください。';
+      case 'ImageTooLarge':
+        return '画像サイズが大きすぎます。2MB以下の画像を選択してください。';
+      case 'VertexAIUnavailable':
+        return 'AI分析サービスが一時的に利用できません。しばらく待ってから再試行してください。';
+      case 'GeminiGenerationStopped':
+        return 'この画像は分析できませんでした。別の画像でお試しください。';
+      case 'FirebaseUnavailable':
+        return 'サービスが一時的に利用できません。しばらく待ってから再試行してください。';
+      case 'GoogleMapsApiError':
+        return '住所検索サービスが一時的に利用できません。しばらく待ってから再試行してください。';
+      case 'AddressNotFound':
+        return '指定された住所が見つかりませんでした。別の住所をお試しください。';
+      case 'ReverseGeocodingError':
+        return 'GPS位置から住所の取得に失敗しました。';
+      case 'AddressSuggestionsError':
+        return '住所候補の取得に失敗しました。手動入力を続けてください。';
+      default:
+        return message;
+    }
+  }
+}
+
+/// Maisoku AI v1.0: 統一APIエラーハンドリング（履歴機能削除版）
 /// Cloud Run API統合・段階的認証・Firebase Crashlytics対応
 class ApiErrorHandler {
   // === v1.0 Cloud Run APIエンドポイント定義 ===
@@ -11,13 +105,11 @@ class ApiErrorHandler {
   // Cloud Run メインAPI（実際に使用）
   static const String CLOUD_RUN_CAMERA_ANALYSIS = 'cloud_run_camera_analysis';
   static const String CLOUD_RUN_AREA_ANALYSIS = 'cloud_run_area_analysis';
-  static const String CLOUD_RUN_ANALYSIS_HISTORY = 'cloud_run_analysis_history';
 
   // Firebase API
   static const String FIREBASE_AUTH = 'firebase_auth';
   static const String FIRESTORE_READ = 'firestore_read';
   static const String FIRESTORE_WRITE = 'firestore_write';
-  static const String FIREBASE_STORAGE = 'firebase_storage';
 
   // Google Maps API（将来実装予定）
   static const String GOOGLE_MAPS_GEOCODING = 'google_maps_geocoding';
@@ -118,9 +210,6 @@ class ApiErrorHandler {
       case FIREBASE_AUTH:
         userMessage = 'ログインに失敗しました';
         break;
-      case FIREBASE_STORAGE:
-        userMessage = '画像の保存に失敗しました';
-        break;
     }
 
     // エラーを記録
@@ -185,8 +274,6 @@ class ApiErrorHandler {
   static String _getApiTypeFromEndpoint(String endpoint) {
     if (endpoint.contains('camera-analysis')) return CLOUD_RUN_CAMERA_ANALYSIS;
     if (endpoint.contains('area-analysis')) return CLOUD_RUN_AREA_ANALYSIS;
-    if (endpoint.contains('analysis-history'))
-      return CLOUD_RUN_ANALYSIS_HISTORY;
     return 'cloud_run_unknown';
   }
 
@@ -333,7 +420,6 @@ class ApiErrorHandler {
       // Cloud Run API
       CLOUD_RUN_CAMERA_ANALYSIS: '写真分析',
       CLOUD_RUN_AREA_ANALYSIS: 'エリア分析',
-      CLOUD_RUN_ANALYSIS_HISTORY: '分析履歴',
 
       // Legacy API
       CAMERA_ANALYSIS: 'カメラ分析',
@@ -342,7 +428,6 @@ class ApiErrorHandler {
       FIREBASE_AUTH: 'ログイン',
       FIRESTORE_READ: 'データ読み込み',
       FIRESTORE_WRITE: 'データ保存',
-      FIREBASE_STORAGE: '画像保存',
 
       // Google Maps API
       GOOGLE_MAPS_GEOCODING: '住所検索',
@@ -392,7 +477,6 @@ class ApiErrorHandler {
     switch (apiType) {
       case CLOUD_RUN_CAMERA_ANALYSIS:
       case CLOUD_RUN_AREA_ANALYSIS:
-      case CLOUD_RUN_ANALYSIS_HISTORY:
       case CAMERA_ANALYSIS:
         return statusCode == null || statusCode >= 500 || statusCode == 429;
       case FIREBASE_AUTH:

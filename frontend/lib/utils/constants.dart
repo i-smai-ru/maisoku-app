@@ -1,5 +1,3 @@
-// lib/utils/constants.dart
-
 /// Maisoku AI v1.0: 統一定数管理クラス
 /// Cloud Run API統合・段階的認証・Material Design 3対応
 class AppConstants {
@@ -22,7 +20,6 @@ class AppConstants {
   // Cloud Run APIエンドポイント
   static const String ENDPOINT_CAMERA_ANALYSIS = '/api/camera-analysis';
   static const String ENDPOINT_AREA_ANALYSIS = '/api/area-analysis';
-  static const String ENDPOINT_ANALYSIS_HISTORY = '/api/analysis-history';
   static const String ENDPOINT_ADDRESS_SUGGESTIONS = '/api/address-suggestions';
   static const String ENDPOINT_GEOCODING = '/api/geocoding';
   static const String ENDPOINT_HEALTH_CHECK = '/health';
@@ -48,8 +45,7 @@ class AppConstants {
 
   // 認証必須機能
   static const List<String> AUTH_REQUIRED_FEATURES = [
-    'camera_analysis_save',
-    'analysis_history',
+    'camera_analysis',
     'personalized_area_analysis',
     'user_preferences',
   ];
@@ -57,7 +53,6 @@ class AppConstants {
   // 認証不要機能
   static const List<String> AUTH_OPTIONAL_FEATURES = [
     'home_screen',
-    'basic_camera_analysis',
     'basic_area_analysis',
     'address_input',
   ];
@@ -140,19 +135,17 @@ class AppConstants {
 
   // === UI/UX設定（Material Design 3準拠） ===
 
-  // 動的タブ構成
+  // 4タブ構成
   static const int TAB_HOME = 0;
   static const int TAB_CAMERA = 1;
   static const int TAB_AREA = 2;
-  static const int TAB_HISTORY = 3; // ログイン時のみ
-  static const int TAB_MY_PAGE = 4; // ログイン時のみ
+  static const int TAB_MY_PAGE = 3; // ログイン時
   static const int TAB_LOGIN = 3; // 未ログイン時
 
   static const List<String> TAB_LABELS_LOGGED_IN = [
     'ホーム',
     'カメラ',
     'エリア',
-    '履歴',
     'マイページ',
   ];
 
@@ -167,7 +160,6 @@ class AppConstants {
   static const String COLOR_THEME_HOME = 'green';
   static const String COLOR_THEME_CAMERA = 'blue';
   static const String COLOR_THEME_AREA = 'green';
-  static const String COLOR_THEME_HISTORY = 'blue';
   static const String COLOR_THEME_MY_PAGE = 'purple';
 
   // Material Design 3サイズ
@@ -242,13 +234,8 @@ class AppConstants {
 
   // Firestore コレクション名
   static const String COLLECTION_USERS = 'users';
-  static const String COLLECTION_ANALYSIS_HISTORY = 'analysisHistory';
   static const String COLLECTION_PREFERENCES = 'preferences';
   static const String DOCUMENT_CURRENT_PREFERENCES = 'current';
-
-  // Firebase Storage パス
-  static const String STORAGE_CAMERA_IMAGES = 'camera_analysis';
-  static const String STORAGE_THUMBNAILS = 'thumbnails';
 
   // Crashlytics設定
   static const int PERFORMANCE_SAMPLE_RATE = 10; // 10%サンプリング
@@ -259,8 +246,6 @@ class AppConstants {
 
   static const int CACHE_DURATION_HOURS = 24;
   static const int MAX_CACHE_ENTRIES = 100;
-  static const int IMAGE_CACHE_DURATION_HOURS = 72;
-  static const int MAX_IMAGE_CACHE_SIZE_MB = 100;
 
   // === データ検証 ===
 
@@ -308,7 +293,7 @@ class AppConstants {
   // === 成功メッセージ定数 ===
 
   static const String SUCCESS_ANALYSIS_COMPLETED = '分析が完了しました';
-  static const String SUCCESS_CAMERA_ANALYSIS_SAVED = '分析結果を保存しました';
+  static const String SUCCESS_CAMERA_ANALYSIS_COMPLETED = 'カメラ分析が完了しました';
   static const String SUCCESS_AREA_ANALYSIS_COMPLETED = 'エリア分析が完了しました';
   static const String SUCCESS_PREFERENCES_SAVED = '設定を保存しました';
   static const String SUCCESS_LOGIN = 'ログインしました';
@@ -327,7 +312,6 @@ class AppConstants {
   static const String DEEP_LINK_SCHEME = 'maisoku';
   static const String DEEP_LINK_CAMERA = '/camera';
   static const String DEEP_LINK_AREA = '/area';
-  static const String DEEP_LINK_HISTORY = '/history';
   static const String DEEP_LINK_PREFERENCES = '/preferences';
 
   // === サポート・ヘルプ ===
@@ -351,7 +335,6 @@ class AppConstants {
 
   static const bool ENABLE_CAMERA_ANALYSIS = true;
   static const bool ENABLE_AREA_ANALYSIS = true;
-  static const bool ENABLE_HISTORY_SAVE = true;
   static const bool ENABLE_AUDIO_PLAYBACK = true;
   static const bool ENABLE_PUSH_NOTIFICATIONS = false;
   static const bool ENABLE_OFFLINE_MODE = false;
@@ -458,6 +441,7 @@ class AppConstants {
       'camera_analysis_steps': CAMERA_ANALYSIS_PROGRESS_STEPS,
       'min_address_length': MIN_ADDRESS_LENGTH,
       'max_address_length': MAX_ADDRESS_LENGTH,
+      'tab_count': 4,
       'configuration_valid': validateAppConfiguration().isEmpty,
     };
   }

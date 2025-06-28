@@ -226,149 +226,6 @@ class AreaAnalysisResponse extends AnalysisResponse {
   }
 }
 
-/// 履歴取得レスポンスモデル
-class AnalysisHistoryResponse {
-  final List<AnalysisHistoryItem> history;
-  final int total;
-  final int limit;
-  final String timestamp;
-
-  AnalysisHistoryResponse({
-    required this.history,
-    required this.total,
-    required this.limit,
-    required this.timestamp,
-  });
-
-  factory AnalysisHistoryResponse.fromJson(Map<String, dynamic> json) {
-    return AnalysisHistoryResponse(
-      history: (json[ApiConfig.historyField] as List<dynamic>? ?? [])
-          .map((item) => AnalysisHistoryItem.fromJson(item))
-          .toList(),
-      total: json['total'] as int? ?? 0,
-      limit: json['limit'] as int? ?? 20,
-      timestamp: json[ApiConfig.timestampField] as String? ??
-          DateTime.now().toIso8601String(),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      ApiConfig.historyField: history.map((item) => item.toJson()).toList(),
-      'total': total,
-      'limit': limit,
-      ApiConfig.timestampField: timestamp,
-    };
-  }
-
-  bool get hasHistory => history.isNotEmpty;
-  int get count => history.length;
-}
-
-/// 履歴アイテムモデル
-class AnalysisHistoryItem {
-  final String id;
-  final String analysisType;
-  final String summary;
-  final String timestamp;
-  final String? imageUrl;
-  final String? address;
-  final bool isPersonalized;
-  final Map<String, dynamic>? metadata;
-
-  AnalysisHistoryItem({
-    required this.id,
-    required this.analysisType,
-    required this.summary,
-    required this.timestamp,
-    this.imageUrl,
-    this.address,
-    required this.isPersonalized,
-    this.metadata,
-  });
-
-  factory AnalysisHistoryItem.fromJson(Map<String, dynamic> json) {
-    return AnalysisHistoryItem(
-      id: json['id'] as String,
-      analysisType: json['analysis_type'] as String,
-      summary: json['summary'] as String,
-      timestamp: json[ApiConfig.timestampField] as String,
-      imageUrl: json['image_url'] as String?,
-      address: json['address'] as String?,
-      isPersonalized: json[ApiConfig.isPersonalizedField] as bool? ?? false,
-      metadata: json[ApiConfig.metadataField] as Map<String, dynamic>?,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'analysis_type': analysisType,
-      'summary': summary,
-      ApiConfig.timestampField: timestamp,
-      'image_url': imageUrl,
-      'address': address,
-      ApiConfig.isPersonalizedField: isPersonalized,
-      ApiConfig.metadataField: metadata,
-    };
-  }
-
-  // タイムスタンプをDateTimeオブジェクトに変換
-  DateTime get parsedTimestamp {
-    try {
-      return DateTime.parse(timestamp);
-    } catch (e) {
-      return DateTime.now();
-    }
-  }
-
-  // 分析タイプの日本語表示
-  String get analysisTypeDisplay {
-    switch (analysisType) {
-      case 'camera_analysis':
-        return 'カメラ分析';
-      case 'area_analysis':
-        return 'エリア分析';
-      default:
-        return '不明';
-    }
-  }
-
-  // アイコン取得
-  String get icon {
-    switch (analysisType) {
-      case 'camera_analysis':
-        return '📷';
-      case 'area_analysis':
-        return '🗺️';
-      default:
-        return '📄';
-    }
-  }
-
-  // 表示用タイトル生成
-  String get displayTitle {
-    if (analysisType == 'camera_analysis') {
-      return '物件写真の分析';
-    } else if (analysisType == 'area_analysis' && address != null) {
-      return address!;
-    } else {
-      return analysisTypeDisplay;
-    }
-  }
-
-  // サマリーの短縮版（プレビュー用）
-  String get shortSummary {
-    if (summary.length <= 100) return summary;
-    return '${summary.substring(0, 97)}...';
-  }
-
-  // 個人化分析の表示
-  String get personalizationBadge {
-    return isPersonalized ? '🔐 個人化' : '🔓 基本';
-  }
-}
-
 /// APIエラーレスポンスモデル
 class ApiErrorResponse {
   final String error;
@@ -468,7 +325,6 @@ class ResponseUtils {
       if (analysisType == 'area_analysis') return 'area_analysis';
       return 'analysis';
     }
-    if (json.containsKey(ApiConfig.historyField)) return 'history';
 
     return 'unknown';
   }
@@ -486,8 +342,6 @@ class ResponseUtils {
         return AreaAnalysisResponse.fromJson(json);
       case 'analysis':
         return AnalysisResponse.fromJson(json);
-      case 'history':
-        return AnalysisHistoryResponse.fromJson(json);
       default:
         throw Exception('Unknown response type: $type');
     }

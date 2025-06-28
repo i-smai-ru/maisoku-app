@@ -1,6 +1,7 @@
 // lib/services/address_service.dart
 
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import '../models/address_model.dart';
@@ -9,46 +10,70 @@ import '../utils/address_validator.dart';
 import 'api_service.dart';
 
 /// Maisoku AI v1.0: 住所サービス
-///
-/// 機能分離対応：
-/// - GPS位置取得：Flutter側（実機から）
-/// - 住所候補・正規化：ApiService経由（Google Maps API統合）
-/// - エリア分析：ApiService経由
 class AddressService {
   // === GPS位置取得（Flutter側実装） ===
 
-  /// GPS位置を取得
+  /// GPS位置を取得（エラーハンドリング強化版）
   Future<Position?> getCurrentLocation() async {
     try {
+      print('📍 GPS位置取得開始...');
+
+      // 位置情報サービスの確認
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         print('⚠️ 位置情報サービスが無効です');
-        return null;
+        throw LocationServiceDisabledException('位置情報サービスが無効です。設定から有効にしてください。');
       }
 
+      // 権限チェック・要求
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
+        print('🔐 位置情報権限を要求中...');
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           print('❌ 位置情報の許可が拒否されました');
-          return null;
+          throw LocationPermissionDeniedException('位置情報の許可が必要です。設定から許可してください。');
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
         print('❌ 位置情報の許可が永続的に拒否されています');
-        return null;
+        throw LocationPermissionDeniedForeverException(
+            '位置情報の許可が永続的に拒否されています。設定から手動で許可してください。');
       }
 
+      // GPS位置取得（タイムアウト設定）
+      print('🛰️ GPS位置取得中...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 30), // タイムアウト設定
       );
 
       print('✅ GPS位置取得成功: ${position.latitude}, ${position.longitude}');
+      print('   精度: ${position.accuracy}m, 取得時刻: ${position.timestamp}');
+
       return position;
+    } on LocationServiceDisabledException catch (e) {
+      print('❌ LocationServiceDisabledException: $e');
+      rethrow;
+    } on LocationPermissionDeniedException catch (e) {
+      print('❌ LocationPermissionDeniedException: $e');
+      rethrow;
+    } on LocationPermissionDeniedForeverException catch (e) {
+      print('❌ LocationPermissionDeniedForeverException: $e');
+      rethrow;
+    } on TimeoutException catch (e) {
+      print('❌ GPS取得タイムアウト: $e');
+      throw GPSTimeoutException('GPS取得がタイムアウトしました。しばらく待ってから再度お試しください。');
     } catch (e) {
       print('❌ GPS位置取得エラー: $e');
-      return null;
+      if (e.toString().contains('timeout')) {
+        throw GPSTimeoutException('GPS取得がタイムアウトしました。');
+      } else if (e.toString().contains('permission')) {
+        throw LocationPermissionDeniedException('位置情報の許可が必要です。');
+      } else {
+        throw GPSException('GPS取得に失敗しました: ${e.toString()}');
+      }
     }
   }
 
@@ -80,47 +105,56 @@ class AddressService {
 
   // === ApiService経由での住所処理 ===
 
-  /// 住所候補を取得（ApiService経由）
+  /// 住所候補を取得（ApiService経由・エラーハンドリング強化）
   Future<List<AddressSuggestion>> getAddressSuggestions(String input) async {
     if (input.length < 2) return [];
 
     try {
       print('🔍 住所候補取得開始: $input');
 
-      final suggestions = await ApiService.getAddressSuggestions(
+      final result = await ApiService.getAddressSuggestions(
         input: input,
         types: 'address',
         country: 'jp',
       );
 
-      final result = suggestions.take(5).map((suggestion) {
-        return AddressSuggestion(
-          description: suggestion['description'] as String,
-          placeId: suggestion['place_id'] as String? ?? '',
-        );
-      }).toList();
+      if (result != null && result.containsKey('predictions')) {
+        final predictions = result['predictions'] as List<dynamic>;
 
-      print('✅ 住所候補取得完了: ${result.length}件');
-      return result;
+        final suggestions = predictions.take(5).map((suggestion) {
+          return AddressSuggestion(
+            description: suggestion['description'] as String? ?? '',
+            placeId: suggestion['place_id'] as String? ?? '',
+          );
+        }).toList();
+
+        print('✅ 住所候補取得完了: ${suggestions.length}件');
+        return suggestions;
+      } else {
+        print('⚠️ 住所候補の形式が不正です');
+        // フォールバックは呼び出し元で判断（API失敗時は入力継続可能）
+        return [];
+      }
     } catch (e) {
       print('❌ 住所候補取得エラー: $e');
-      // フォールバック：基本実装を使用
-      return _generateBasicSuggestions(input);
+      // フォールバック処理を削除：API失敗時は空リストを返し、入力継続を可能にする
+      return [];
     }
   }
 
-  /// GPS座標から住所を取得（ApiService経由）
+  /// GPS座標から住所を取得（ApiService経由・フォールバック強化）
   Future<AddressModel?> getAddressFromCoordinates(
       double latitude, double longitude) async {
     try {
       print('🗺️ GPS→住所変換開始: ($latitude, $longitude)');
 
-      final result = await ApiService.getAddressFromCoordinates(
+      // API呼び出し
+      final result = await ApiService.reverseGeocode(
         latitude: latitude,
         longitude: longitude,
       );
 
-      if (result != null) {
+      if (result != null && result.containsKey('formatted_address')) {
         final addressModel = AddressModel(
           originalInput: 'GPS位置',
           normalizedAddress: result['formatted_address'] as String,
@@ -135,18 +169,16 @@ class AddressService {
         print('✅ GPS→住所変換成功: ${addressModel.normalizedAddress}');
         return addressModel;
       } else {
-        print('⚠️ GPS→住所変換結果なし');
-        // フォールバック：基本実装を使用
+        print('⚠️ GPS→住所変換結果なし、フォールバック実行');
         return _createFallbackAddressModel(latitude, longitude);
       }
     } catch (e) {
-      print('❌ GPS→住所変換エラー: $e');
-      // フォールバック：基本実装を使用
+      print('❌ GPS→住所変換エラー: $e、フォールバック実行');
       return _createFallbackAddressModel(latitude, longitude);
     }
   }
 
-  /// 住所を正規化（ApiService + 基本処理）
+  /// 住所を正規化（ApiService + 基本処理・フォールバック強化）
   Future<AddressModel?> normalizeAddress(String input) async {
     try {
       print('📝 住所正規化開始: $input');
@@ -183,18 +215,19 @@ class AddressService {
         print('✅ 住所正規化成功: ${addressModel.normalizedAddress}');
         return addressModel;
       } else {
-        print('⚠️ 住所候補が見つかりませんでした');
-        return null;
+        print('⚠️ 住所候補が見つかりませんでした、フォールバック実行');
+        return _createFallbackAddressModelFromInput(input, addressType);
       }
     } catch (e) {
-      print('❌ 住所正規化エラー: $e');
-      return null;
+      print('❌ 住所正規化エラー: $e、フォールバック実行');
+      final addressType = AddressValidator.detectAddressType(input);
+      return _createFallbackAddressModelFromInput(input, addressType);
     }
   }
 
   // === プライベートヘルパーメソッド ===
 
-  /// フォールバック用の AddressModel 作成
+  /// フォールバック用の AddressModel 作成（GPS座標から）
   AddressModel _createFallbackAddressModel(double latitude, double longitude) {
     final estimatedAddress =
         _estimateAddressFromCoordinates(latitude, longitude);
@@ -211,48 +244,129 @@ class AddressService {
     );
   }
 
-  /// 基本的な住所候補生成（デモ用）
-  List<AddressSuggestion> _generateBasicSuggestions(String input) {
-    final suggestions = <AddressSuggestion>[];
-    final normalizedInput = input.toLowerCase();
-
-    // よく使われる住所パターンを生成
-    if (normalizedInput.contains('渋谷')) {
-      suggestions.addAll([
-        AddressSuggestion(description: '東京都渋谷区渋谷', placeId: 'demo_shibuya_1'),
-        AddressSuggestion(description: '渋谷駅', placeId: 'demo_shibuya_station'),
-        AddressSuggestion(description: '東京都渋谷区道玄坂', placeId: 'demo_dogenzaka'),
-      ]);
-    } else if (normalizedInput.contains('新宿')) {
-      suggestions.addAll([
-        AddressSuggestion(description: '東京都新宿区新宿', placeId: 'demo_shinjuku_1'),
-        AddressSuggestion(description: '新宿駅', placeId: 'demo_shinjuku_station'),
-        AddressSuggestion(description: '東京都新宿区歌舞伎町', placeId: 'demo_kabukicho'),
-      ]);
-    } else if (normalizedInput.contains('東京')) {
-      suggestions.addAll([
-        AddressSuggestion(description: '東京都', placeId: 'demo_tokyo_1'),
-        AddressSuggestion(description: '東京駅', placeId: 'demo_tokyo_station'),
-        AddressSuggestion(description: '東京都千代田区', placeId: 'demo_chiyoda'),
-      ]);
-    } else {
-      // 汎用的な候補
-      suggestions.add(
-        AddressSuggestion(description: '$input（住所候補）', placeId: 'demo_generic'),
-      );
+  /// フォールバック用の AddressModel 作成（手動入力から）
+  AddressModel? _createFallbackAddressModelFromInput(
+      String input, AddressType addressType) {
+    // 基本的な日本の住所であることを確認
+    if (!_isLikelyJapaneseAddress(input)) {
+      print('⚠️ 日本の住所ではない可能性があります: $input');
+      return null;
     }
 
-    return suggestions.take(5).toList();
+    // 座標推定
+    final coordinates = _estimateCoordinates(input, addressType);
+
+    // 信頼度計算
+    final confidence = _calculateFallbackConfidence(input, addressType);
+
+    if (confidence < 0.3) {
+      print('⚠️ 信頼度が低すぎます: $confidence');
+      return null;
+    }
+
+    return AddressModel(
+      originalInput: input,
+      normalizedAddress: _basicNormalization(input),
+      latitude: coordinates['lat']!,
+      longitude: coordinates['lng']!,
+      precisionLevel: _determinePrecisionLevel(addressType, input),
+      confidence: confidence,
+      analysisRadius: _determineAnalysisRadius(addressType),
+      timestamp: DateTime.now(),
+    );
+  }
+
+  /// 日本の住所らしさを判定
+  bool _isLikelyJapaneseAddress(String input) {
+    final japaneseKeywords = [
+      '都',
+      '道',
+      '府',
+      '県',
+      '市',
+      '区',
+      '町',
+      '村',
+      '駅',
+      '丁目',
+      '番地',
+      '番',
+      '号',
+      '東京',
+      '大阪',
+      '名古屋',
+      '横浜',
+      '神戸',
+      '京都',
+      '福岡',
+      '札幌',
+      '仙台',
+    ];
+
+    final hasJapaneseKeyword =
+        japaneseKeywords.any((keyword) => input.contains(keyword));
+    final hasHiraganaKatakana =
+        RegExp(r'[\u3040-\u309F\u30A0-\u30FF]').hasMatch(input);
+    final hasKanji = RegExp(r'[\u4E00-\u9FAF]').hasMatch(input);
+
+    return hasJapaneseKeyword || hasHiraganaKatakana || hasKanji;
+  }
+
+  /// フォールバック時の信頼度計算
+  double _calculateFallbackConfidence(String input, AddressType addressType) {
+    double confidence = 0.3; // ベース信頼度
+
+    // 入力タイプによる調整
+    switch (addressType) {
+      case AddressType.station:
+        if (input.contains('駅')) confidence += 0.3;
+        if (input.contains('JR') || input.contains('線')) confidence += 0.1;
+        break;
+      case AddressType.exact:
+        if (input.contains('丁目') || input.contains('番地')) confidence += 0.2;
+        if (RegExp(r'\d').hasMatch(input)) confidence += 0.1;
+        break;
+      case AddressType.district:
+        if (input.contains('市') || input.contains('区')) confidence += 0.2;
+        if (input.contains('都') || input.contains('県')) confidence += 0.1;
+        break;
+      case AddressType.landmark:
+        confidence += 0.1;
+        break;
+      case AddressType.unclear:
+        confidence = 0.2;
+        break;
+    }
+
+    // 長さによる調整
+    if (input.length >= 5 && input.length <= 30) {
+      confidence += 0.1;
+    }
+
+    return confidence.clamp(0.0, 1.0);
   }
 
   /// GPS座標から住所を推定（簡易実装）
   String _estimateAddressFromCoordinates(double latitude, double longitude) {
-    // 大まかな地域判定
+    // 大まかな地域判定（改良版）
     if (latitude >= 35.5 &&
         latitude <= 35.8 &&
         longitude >= 139.5 &&
         longitude <= 139.9) {
-      return '東京都内';
+      // 東京都内の細分化
+      if (latitude >= 35.65 &&
+          latitude <= 35.70 &&
+          longitude >= 139.68 &&
+          longitude <= 139.72) {
+        return '東京都渋谷区周辺';
+      } else if (latitude >= 35.68 &&
+          latitude <= 35.71 &&
+          longitude >= 139.69 &&
+          longitude <= 139.73) {
+        return '東京都新宿区周辺';
+      } else {
+        return '東京都内';
+      }
     } else if (latitude >= 34.5 &&
         latitude <= 34.8 &&
         longitude >= 135.3 &&
@@ -263,6 +377,16 @@ class AddressService {
         longitude >= 136.7 &&
         longitude <= 137.0) {
       return '愛知県内';
+    } else if (latitude >= 33.5 &&
+        latitude <= 33.7 &&
+        longitude >= 130.3 &&
+        longitude <= 130.5) {
+      return '福岡県内';
+    } else if (latitude >= 43.0 &&
+        latitude <= 43.1 &&
+        longitude >= 141.3 &&
+        longitude <= 141.4) {
+      return '北海道札幌市周辺';
     } else {
       return '日本国内（緯度: ${latitude.toStringAsFixed(4)}, 経度: ${longitude.toStringAsFixed(4)}）';
     }
@@ -286,20 +410,49 @@ class AddressService {
     return result;
   }
 
-  /// 座標の簡易推定
+  /// 座標の簡易推定（改良版）
   Map<String, double> _estimateCoordinates(String address, AddressType type) {
     // デフォルト座標（東京都庁）
     double lat = 35.6762;
     double lng = 139.6503;
 
-    // 簡易的な都道府県判定
-    if (address.contains('大阪')) {
+    // より詳細な地域判定
+    final addressLower = address.toLowerCase();
+
+    // 東京都内の詳細判定
+    if (address.contains('渋谷')) {
+      lat = 35.6580;
+      lng = 139.7016;
+    } else if (address.contains('新宿')) {
+      lat = 35.6896;
+      lng = 139.6917;
+    } else if (address.contains('池袋')) {
+      lat = 35.7295;
+      lng = 139.7109;
+    } else if (address.contains('品川')) {
+      lat = 35.6284;
+      lng = 139.7387;
+    } else if (address.contains('上野')) {
+      lat = 35.7141;
+      lng = 139.7774;
+    } else if (address.contains('銀座')) {
+      lat = 35.6717;
+      lng = 139.7648;
+    } else if (address.contains('六本木')) {
+      lat = 35.6654;
+      lng = 139.7314;
+    } else if (address.contains('秋葉原')) {
+      lat = 35.7022;
+      lng = 139.7744;
+    }
+    // 他の主要都市
+    else if (address.contains('大阪') || address.contains('梅田')) {
       lat = 34.6937;
       lng = 135.5023;
     } else if (address.contains('名古屋')) {
       lat = 35.1815;
       lng = 136.9066;
-    } else if (address.contains('福岡')) {
+    } else if (address.contains('福岡') || address.contains('天神')) {
       lat = 33.5904;
       lng = 130.4017;
     } else if (address.contains('札幌')) {
@@ -311,15 +464,15 @@ class AddressService {
     } else if (address.contains('広島')) {
       lat = 34.3853;
       lng = 132.4553;
-    } else if (address.contains('渋谷')) {
-      lat = 35.6580;
-      lng = 139.7016;
-    } else if (address.contains('新宿')) {
-      lat = 35.6896;
-      lng = 139.6917;
-    } else if (address.contains('池袋')) {
-      lat = 35.7295;
-      lng = 139.7109;
+    } else if (address.contains('京都')) {
+      lat = 35.0116;
+      lng = 135.7681;
+    } else if (address.contains('神戸')) {
+      lat = 34.6901;
+      lng = 135.1956;
+    } else if (address.contains('横浜')) {
+      lat = 35.4437;
+      lng = 139.6380;
     }
 
     return {'lat': lat, 'lng': lng};
@@ -394,8 +547,8 @@ class AddressService {
 
     // ApiService接続テスト
     try {
-      final suggestions = await ApiService.getAddressSuggestions(input: '東京');
-      results['api_service_connection'] = suggestions.isNotEmpty;
+      final result = await ApiService.getAddressSuggestions(input: '東京');
+      results['api_service_connection'] = result != null && result.isNotEmpty;
     } catch (e) {
       results['api_service_connection'] = false;
     }
@@ -406,16 +559,16 @@ class AddressService {
   /// デバッグ情報を表示
   void printDebugInfo() {
     print('''
-🔍 AddressService Debug Info (v1.0):
-  GPS Provider: Flutter Geolocator
+🔍 AddressService Debug Info (v1.0 強化版):
+  GPS Provider: Flutter Geolocator + エラーハンドリング強化
   Address API: ApiService + Google Maps
   Supported Functions:
-    - GPS位置取得 ✅
-    - 住所候補取得 ✅ (ApiService経由)
-    - GPS→住所変換 ✅ (ApiService経由) 
-    - 基本住所正規化 ✅
-    - フォールバック機能 ✅
-  Version: 1.0
+    - GPS位置取得 ✅ (タイムアウト・例外処理強化)
+    - 住所候補取得 ✅ (ApiService経由・フォールバック削除)
+    - GPS→住所変換 ✅ (ApiService経由・フォールバック強化)
+    - 住所正規化 ✅ (フォールバック処理改善)
+    - エラーハンドリング ✅ (カスタム例外・詳細メッセージ)
+  Version: 1.0-enhanced
 ''');
   }
 }
@@ -463,4 +616,46 @@ extension LocationPermissionStatusExtension on LocationPermissionStatus {
   }
 
   bool get isUsable => this == LocationPermissionStatus.granted;
+}
+
+// === カスタム例外クラス ===
+
+/// 位置情報サービス無効例外
+class LocationServiceDisabledException implements Exception {
+  final String message;
+  LocationServiceDisabledException(this.message);
+  @override
+  String toString() => 'LocationServiceDisabledException: $message';
+}
+
+/// 位置情報権限拒否例外
+class LocationPermissionDeniedException implements Exception {
+  final String message;
+  LocationPermissionDeniedException(this.message);
+  @override
+  String toString() => 'LocationPermissionDeniedException: $message';
+}
+
+/// 位置情報権限永続拒否例外
+class LocationPermissionDeniedForeverException implements Exception {
+  final String message;
+  LocationPermissionDeniedForeverException(this.message);
+  @override
+  String toString() => 'LocationPermissionDeniedForeverException: $message';
+}
+
+/// GPS取得タイムアウト例外
+class GPSTimeoutException implements Exception {
+  final String message;
+  GPSTimeoutException(this.message);
+  @override
+  String toString() => 'GPSTimeoutException: $message';
+}
+
+/// GPS一般例外
+class GPSException implements Exception {
+  final String message;
+  GPSException(this.message);
+  @override
+  String toString() => 'GPSException: $message';
 }

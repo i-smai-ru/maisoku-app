@@ -7,11 +7,6 @@ import '../../services/address_service.dart';
 import '../../utils/address_validator.dart';
 
 /// Maisoku AI v1.0: 住所入力ウィジェット
-///
-/// エリア分析画面で使用する住所入力UI
-/// - GPS取得・手動入力・Google Places候補選択対応
-/// - リアルタイムバリデーション・候補表示
-/// - Cloud Run API対応・段階的認証システム対応
 class AddressInputWidget extends StatefulWidget {
   /// 住所選択時のコールバック
   final Function(AddressModel) onAddressSelected;
@@ -58,6 +53,10 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
   String _errorMessage = '';
   bool _isProcessing = false;
 
+  // 住所確定状態
+  bool _isAddressConfirmed = false;
+  String _confirmedAddress = '';
+
   @override
   void initState() {
     super.initState();
@@ -77,14 +76,22 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
   void _onTextChanged() {
     final String input = _controller.text;
 
+    // 住所確定状態をリセット
+    if (_isAddressConfirmed) {
+      setState(() {
+        _isAddressConfirmed = false;
+        _confirmedAddress = '';
+      });
+    }
+
     // リアルタイムバリデーション
     setState(() {
       _errorMessage = AddressValidator.getValidationErrorMessage(input);
     });
 
-    // Google Places候補取得
+    // Google Places候補取得（必ずAPI呼び出し）
     if (input.length >= 2 && _errorMessage.isEmpty) {
-      _getSuggestions(input);
+      _getSuggestionsFromAPI(input);
     } else {
       setState(() {
         _suggestions = [];
@@ -96,7 +103,7 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
   /// フォーカス変更時の処理
   void _onFocusChanged() {
     if (!_focusNode.hasFocus) {
-      // フォーカスを失った場合は候補を非表示
+      // フォーカスを失った場合は候補を非表示（よくあるUX）
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted) {
           setState(() {
@@ -107,8 +114,8 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
     }
   }
 
-  /// Google Places候補取得
-  Future<void> _getSuggestions(String input) async {
+  /// Google Places候補取得（必ずAPI呼び出し）
+  Future<void> _getSuggestionsFromAPI(String input) async {
     setState(() {
       _isLoadingSuggestions = true;
     });
@@ -129,10 +136,25 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
       if (mounted) {
         setState(() {
           _isLoadingSuggestions = false;
-          _errorMessage = '住所候補の取得に失敗しました';
+          // API失敗時は入力継続可能（エラー表示のみ）
+          _showSuggestions = false;
         });
+
+        // エラーメッセージを一時的に表示
+        _showTemporaryError('住所候補の取得に失敗しましたが、入力は継続できます');
       }
     }
+  }
+
+  /// 一時的なエラーメッセージ表示
+  void _showTemporaryError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   /// GPS現在地取得
@@ -154,8 +176,14 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
           setState(() {
             _controller.text = address.normalizedAddress;
             _showSuggestions = false;
+            _isAddressConfirmed = true;
+            _confirmedAddress = address.normalizedAddress;
           });
+
+          // 住所選択コールバックを呼び出し
           widget.onAddressSelected(address);
+
+          _showSuccessMessage('現在地の住所を取得しました');
         } else {
           setState(() {
             _errorMessage = '現在地の住所取得に失敗しました';
@@ -169,9 +197,10 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
     } catch (e) {
       print('❌ GPS取得エラー: $e');
       setState(() {
-        _errorMessage =
-            'GPS取得中にエラーが発生しました: ${_getGPSErrorMessage(e.toString())}';
+        _errorMessage = '現在地の取得に失敗しました';
       });
+
+      _showTemporaryError(_getGPSErrorMessage(e.toString()));
     } finally {
       if (mounted) {
         setState(() {
@@ -193,9 +222,19 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
     return 'GPS取得に失敗しました';
   }
 
+  /// 成功メッセージ表示
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   /// Google Places候補選択
   Future<void> _selectSuggestion(AddressSuggestion suggestion) async {
-    // AddressSuggestion の description プロパティを使用
     final String description = suggestion.description;
 
     setState(() {
@@ -206,12 +245,17 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
     });
 
     try {
-      // normalizeAddress を使用して住所を処理
       final AddressModel? address =
           await widget.addressService.normalizeAddress(description);
 
       if (address != null) {
+        setState(() {
+          _isAddressConfirmed = true;
+          _confirmedAddress = description;
+        });
+
         widget.onAddressSelected(address);
+        _showSuccessMessage('住所を確定しました');
       } else {
         setState(() {
           _errorMessage = '住所の詳細取得に失敗しました';
@@ -231,8 +275,8 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
     }
   }
 
-  /// 手動入力住所の処理
-  Future<void> _processManualInput() async {
+  /// 手動入力住所の確定処理（エンターキー or 確定ボタン）
+  Future<void> _confirmManualInput() async {
     final String input = _controller.text.trim();
 
     if (input.isEmpty) {
@@ -260,7 +304,13 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
           await widget.addressService.normalizeAddress(input);
 
       if (address != null) {
+        setState(() {
+          _isAddressConfirmed = true;
+          _confirmedAddress = input;
+        });
+
         widget.onAddressSelected(address);
+        _showSuccessMessage('住所を確定しました');
       } else {
         setState(() {
           _errorMessage = '住所の解析に失敗しました。より具体的な住所を入力してください。';
@@ -280,6 +330,19 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
     }
   }
 
+  /// 住所リセット
+  void _resetAddress() {
+    setState(() {
+      _controller.clear();
+      _isAddressConfirmed = false;
+      _confirmedAddress = '';
+      _suggestions = [];
+      _showSuggestions = false;
+      _errorMessage = '';
+    });
+    _focusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -293,7 +356,7 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
               Icon(Icons.location_on, color: Colors.green[600], size: 24),
               const SizedBox(width: 8),
               Text(
-                '分析するエリアを教えてください',
+                '住所・駅名・ランドマークを入力',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -304,56 +367,6 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
           ),
 
           const SizedBox(height: 16),
-
-          // GPS取得ボタン（有効な場合のみ表示）
-          if (widget.enableGPS) ...[
-            SizedBox(
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: _isGettingLocation ? null : _getCurrentLocation,
-                icon: _isGettingLocation
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.my_location),
-                label: Text(_isGettingLocation ? 'GPS取得中...' : '現在地から取得'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[600],
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // 区切り線
-            Row(
-              children: [
-                Expanded(child: Divider(color: Colors.grey[300])),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'または',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ),
-                Expanded(child: Divider(color: Colors.grey[300])),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-          ],
 
           // 住所入力フィールド
           Column(
@@ -377,23 +390,20 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
                       : _controller.text.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _controller.clear();
-                                setState(() {
-                                  _suggestions = [];
-                                  _showSuggestions = false;
-                                  _errorMessage = '';
-                                });
-                              },
+                              onPressed: _resetAddress,
                             )
                           : null,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                   errorText: _errorMessage.isNotEmpty ? _errorMessage : null,
+                  // 確定済みの場合は背景色を変更
+                  fillColor: _isAddressConfirmed ? Colors.green[50] : null,
+                  filled: _isAddressConfirmed,
                 ),
-                onSubmitted: (_) => _processManualInput(),
+                onSubmitted: (_) => _confirmManualInput(),
                 textInputAction: TextInputAction.search,
+                enabled: !_isProcessing,
               ),
 
               const SizedBox(height: 8),
@@ -409,39 +419,115 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
             ],
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
-          // 分析実行ボタン
-          SizedBox(
-            height: 48,
-            child: ElevatedButton.icon(
-              onPressed: (_isProcessing || _controller.text.trim().isEmpty)
-                  ? null
-                  : _processManualInput,
-              icon: _isProcessing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.analytics),
-              label: Text(_isProcessing ? '解析中...' : 'エリア分析を開始'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[600],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+          // 現在地取得ボタン（入力フィールドの下に配置）
+          if (widget.enableGPS) ...[
+            SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _isGettingLocation ? null : _getCurrentLocation,
+                icon: _isGettingLocation
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.my_location),
+                label: Text(_isGettingLocation ? 'GPS取得中...' : '📍 現在地を取得'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[600],
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ),
-          ),
+            const SizedBox(height: 16),
+          ],
+
+          // 確定ボタン（未確定の場合のみ表示）
+          if (!_isAddressConfirmed && _controller.text.trim().isNotEmpty) ...[
+            SizedBox(
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _isProcessing ? null : _confirmManualInput,
+                icon: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.check),
+                label: Text(_isProcessing ? '確定中...' : '住所を確定'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[600],
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // 確定済み表示
+          if (_isAddressConfirmed) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green[600], size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '住所確定完了',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[800],
+                          ),
+                        ),
+                        Text(
+                          _confirmedAddress,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.green[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 20),
+                    onPressed: _resetAddress,
+                    tooltip: '住所を変更',
+                    color: Colors.green[600],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // Google Places候補表示
-          if (_showSuggestions) ...[
-            const SizedBox(height: 16),
+          if (_showSuggestions && !_isAddressConfirmed) ...[
             Container(
               constraints: const BoxConstraints(maxHeight: 200),
               decoration: BoxDecoration(
@@ -475,7 +561,7 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
                             color: Colors.grey[600], size: 16),
                         const SizedBox(width: 8),
                         Text(
-                          '住所候補',
+                          '住所候補（Google Maps）',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
@@ -526,6 +612,7 @@ class _AddressInputWidgetState extends State<AddressInputWidget> {
                 ],
               ),
             ),
+            const SizedBox(height: 16),
           ],
         ],
       ),
