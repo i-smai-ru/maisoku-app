@@ -16,18 +16,20 @@ import '../models/address_model.dart';
 
 // Widgets
 import 'widgets/address_input_widget.dart';
+import '../screens/widgets/markdown_analysis_result_widget.dart';
 
 // Utils
 import '../utils/constants.dart';
 import '../utils/api_error_handler.dart';
 
-/// Maisoku AI v1.0: エリア分析画面（1画面完結・段階的認証対応）
+/// Maisoku AI v1.0: エリア分析画面（1画面完結・段階的認証対応・Markdown表示対応）
 ///
 /// 修正内容：
 /// - 状態遷移（AreaAnalysisState）を削除し、1画面完結に変更
 /// - 現在地ボタン・住所確定・分析開始の流れを統合
 /// - 結果表示エリアを画面下部に固定配置
 /// - タブ切り替えコールバックでナビゲーション問題を解決
+/// - Markdown形式の分析結果表示に対応
 class AreaScreen extends StatefulWidget {
   // タブ切り替え用のコールバック関数を追加
   final VoidCallback? onNavigateToLogin;
@@ -67,7 +69,7 @@ class _AreaScreenState extends State<AreaScreen> {
   @override
   void initState() {
     super.initState();
-    print('🗺️ AreaScreen: initState開始 - 1画面完結版');
+    print('🗺️ AreaScreen: initState開始 - 1画面完結版（Markdown対応）');
 
     _userPreferenceService =
         UserPreferenceService(firestoreService: _firestoreService);
@@ -336,7 +338,7 @@ class _AreaScreenState extends State<AreaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    print('🏗️ AreaScreen: build実行 - 1画面完結版');
+    print('🏗️ AreaScreen: build実行 - 1画面完結版（Markdown対応）');
 
     return Scaffold(
       appBar: AppBar(
@@ -545,7 +547,7 @@ class _AreaScreenState extends State<AreaScreen> {
                       ),
                     ),
                   ] else if (_analysisResult != null) ...[
-                    // 分析結果表示
+                    // 分析結果表示（Markdown対応版）
                     _buildAnalysisResultCard(),
                   ] else ...[
                     // 初期状態
@@ -757,81 +759,17 @@ class _AreaScreenState extends State<AreaScreen> {
     return const SizedBox.shrink();
   }
 
-  /// 分析結果カード
+  /// 分析結果カード（Markdown対応版）
   Widget _buildAnalysisResultCard() {
     final bool isActuallyPersonalized = _analysisType == 'personalized';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 分析情報ヘッダー
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isActuallyPersonalized ? Colors.green[50] : Colors.blue[50],
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isActuallyPersonalized
-                  ? Colors.green[200]!
-                  : Colors.blue[200]!,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isActuallyPersonalized ? Icons.verified_user : Icons.public,
-                color: isActuallyPersonalized
-                    ? Colors.green[600]
-                    : Colors.blue[600],
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isActuallyPersonalized ? '個人化AI分析結果' : '基本AI分析結果',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: isActuallyPersonalized
-                            ? Colors.green[800]
-                            : Colors.blue[800],
-                      ),
-                    ),
-                    Text(
-                      isActuallyPersonalized
-                          ? '${_currentUser?.email} の好み設定を反映'
-                          : '一般的な観点からの客観的分析',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isActuallyPersonalized
-                            ? Colors.green[600]
-                            : Colors.blue[600],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 16),
-
-        // 分析結果テキスト
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Text(
-            _analysisResult!.analysis,
-            style: const TextStyle(fontSize: 14, height: 1.5),
-          ),
+        // Markdown対応の分析結果表示
+        MarkdownAnalysisResultWidget(
+          markdownText: _analysisResult!.analysis,
+          isPersonalized: isActuallyPersonalized,
         ),
 
         const SizedBox(height: 16),
